@@ -1,7 +1,5 @@
 /**
- * OverlayImagesSection Component
- *
- * Overlay images management section.
+ * OverlayImagesSection — list + essentials when one is selected.
  */
 
 import type { RefObject } from "react";
@@ -13,39 +11,19 @@ import { STYLES } from "./constants";
 import type { SelectedElement } from "./types";
 
 interface OverlayImagesSectionProps {
-  /** Active screenshot data */
   screenshot: Screenshot;
-  /** Currently selected element */
   selectedElement: SelectedElement | null;
-  /** Overlay image input ref */
   overlayImageInputRef: RefObject<HTMLInputElement | null>;
-  /** Set selected element handler */
   onSelectElement: (element: SelectedElement | null) => void;
-  /** Add overlay image handler */
   onAddImage: (file: File) => void;
-  /** Remove overlay image handler */
   onRemoveImage: (id: string) => void;
-  /** Update image size handler */
   onUpdateSize: (id: string, size: number) => void;
-  /** Update image layer handler */
   onUpdateLayer: (id: string, layer: "behind" | "front") => void;
-  /** Update image rotation handler */
-  onUpdateRotation: (id: string, rotation: number) => void;
-  /** Update image shadow handler */
   onUpdateShadow: (id: string, shadow: Partial<ShadowConfig>) => void;
-  /** Bring image forward handler */
   onBringForward: (id: string) => void;
-  /** Send image backward handler */
   onSendBackward: (id: string) => void;
 }
 
-/**
- * OverlayImagesSection - Overlay images management
- *
- * Add, remove, and configure overlay images.
- *
- * @param props - Component props
- */
 export const OverlayImagesSection = ({
   screenshot,
   selectedElement,
@@ -55,7 +33,6 @@ export const OverlayImagesSection = ({
   onRemoveImage,
   onUpdateSize,
   onUpdateLayer,
-  onUpdateRotation,
   onUpdateShadow,
   onBringForward,
   onSendBackward,
@@ -74,7 +51,7 @@ export const OverlayImagesSection = ({
   };
 
   return (
-    <SidebarSection title="Overlay Images">
+    <SidebarSection title="Overlays">
       <div className="space-y-2">
         <input
           ref={overlayImageInputRef}
@@ -87,7 +64,7 @@ export const OverlayImagesSection = ({
           onClick={() => overlayImageInputRef.current?.click()}
           className={STYLES.uploadButton}
         >
-          + Add Image
+          + Add image
         </button>
 
         {screenshot.overlayImages.length > 0 && (
@@ -120,9 +97,6 @@ export const OverlayImagesSection = ({
               <OverlayImageProperties
                 image={selectedImage}
                 onSizeChange={(size) => onUpdateSize(selectedImage.id, size)}
-                onRotationChange={(rotation) =>
-                  onUpdateRotation(selectedImage.id, rotation)
-                }
                 onLayerChange={(layer) =>
                   onUpdateLayer(selectedImage.id, layer)
                 }
@@ -131,14 +105,8 @@ export const OverlayImagesSection = ({
                     enabled: !selectedImage.shadow?.enabled,
                   })
                 }
-                onShadowColorChange={(color) =>
-                  onUpdateShadow(selectedImage.id, { color })
-                }
                 onShadowBlurChange={(blur) =>
                   onUpdateShadow(selectedImage.id, { blur })
-                }
-                onShadowOffsetYChange={(offsetY) =>
-                  onUpdateShadow(selectedImage.id, { offsetY })
                 }
               />
             )}

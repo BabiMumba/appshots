@@ -1,7 +1,5 @@
 /**
- * ExportSection Component
- *
- * Store-aware export size selection with multi-size export support.
+ * ExportSection — preview size + optional multi-export, then export.
  */
 
 import type { ExportSize } from "../../types";
@@ -43,73 +41,70 @@ export const ExportSection = ({
 
   return (
     <SidebarSection title="Export">
-      <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-        {Array.from(groups.entries()).map(([group, sizes]) => (
-          <div key={group}>
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
-              {group}
-            </p>
-            <div className={STYLES.buttonList}>
-              {sizes.map((size) => {
-                const isPrimary = selectedSizeId === size.id;
-                const isChecked = selectedSizeIds.includes(size.id);
-                return (
-                  <div key={size.id} className="flex items-stretch gap-1">
-                    <button
-                      type="button"
-                      className={`${STYLES.selectionButton} flex-1 ${
-                        isPrimary
-                          ? STYLES.selectionButtonActive
-                          : STYLES.selectionButtonInactive
-                      }`}
-                      onClick={() => onSizeSelect(size.id)}
-                    >
-                      <span className="block text-xs leading-snug">
-                        {size.shortLabel}
-                      </span>
-                      <span
-                        className={`block text-[10px] mt-0.5 ${
-                          isPrimary ? "text-black/60" : "text-gray-500"
-                        }`}
-                      >
-                        {size.width}×{size.height}
-                        {size.required ? " · required" : ""}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      title="Include in multi-export"
-                      onClick={() => onToggleExtraSize(size.id)}
-                      className={`w-8 shrink-0 rounded-md text-xs font-bold transition-colors ${
-                        isChecked
-                          ? "bg-emerald-500 text-black"
-                          : "bg-[#2a2a2a] text-gray-500 hover:bg-[#333]"
-                      }`}
-                    >
-                      {isChecked ? "✓" : "+"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+      <label className="block">
+        <span className="text-xs text-gray-400 mb-1.5 block">Preview size</span>
+        <select
+          value={selectedSizeId}
+          onChange={(e) => onSizeSelect(e.target.value)}
+          className={STYLES.select}
+        >
+          {Array.from(groups.entries()).map(([group, sizes]) => (
+            <optgroup key={group} label={group}>
+              {sizes.map((size) => (
+                <option key={size.id} value={size.id}>
+                  {size.shortLabel} · {size.width}×{size.height}
+                  {size.required ? " (required)" : ""}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
 
       {selected && (
         <p className="mt-2 text-[11px] text-gray-400">
-          Preview:{" "}
-          <span className="text-gray-200">
-            {selected.width}×{selected.height}
-          </span>
+          {selected.width}×{selected.height}
           {selected.store === "appstore" && (
-            <span className="ml-1 text-emerald-400">· App Store OK</span>
+            <span className="ml-1 text-emerald-400">· App Store</span>
           )}
           {selected.store === "play" && (
-            <span className="ml-1 text-emerald-400">· Play OK</span>
+            <span className="ml-1 text-emerald-400">· Play</span>
           )}
         </p>
       )}
+
+      <details className="mt-3 group">
+        <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-200 list-none flex items-center justify-between">
+          <span>Also export other sizes</span>
+          <span className="text-gray-500 group-open:rotate-180 transition-transform">
+            ▾
+          </span>
+        </summary>
+        <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+          {exportSizes.map((size) => {
+            const checked = selectedSizeIds.includes(size.id);
+            return (
+              <label
+                key={size.id}
+                className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggleExtraSize(size.id)}
+                  className="rounded border-white/20 bg-[#2a2a2a] accent-white"
+                />
+                <span className="truncate">
+                  {size.shortLabel}
+                  <span className="text-gray-500 ml-1">
+                    {size.width}×{size.height}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </details>
 
       <button onClick={onExport} className={STYLES.primaryButton}>
         Export {screenshotCount} shot{screenshotCount !== 1 ? "s" : ""}

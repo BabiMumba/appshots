@@ -238,6 +238,7 @@ const createDefaultScreenshot = (
     backgroundMode: "solid",
     gradientPresetId: null,
     customGradient: null,
+    backgroundImage: null,
     overlayImages: [],
     devices: [defaultDevice],
     activeDeviceId: defaultDevice.id,
@@ -293,6 +294,7 @@ const normalizeScreenshot = (
     ...syncLegacyTextFields(texts),
     texts,
     customGradient: screenshot.customGradient ?? null,
+    backgroundImage: screenshot.backgroundImage ?? null,
     overlayImages,
     devices: deviceInstances,
     activeDeviceId,
@@ -794,6 +796,7 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       customGradient: activeScreenshot.customGradient
         ? { ...activeScreenshot.customGradient }
         : null,
+      backgroundImage: activeScreenshot.backgroundImage,
       overlayImages: [],
       devices: newDevices,
       activeDeviceId: newDevices[0]?.id ?? "",

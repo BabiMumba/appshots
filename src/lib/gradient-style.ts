@@ -36,6 +36,9 @@ export function resolveGradientColors(screenshot: Screenshot): {
 }
 
 export function getBackgroundCss(screenshot: Screenshot): string {
+  if (screenshot.backgroundMode === "image" && screenshot.backgroundImage) {
+    return `center / cover no-repeat url(${JSON.stringify(screenshot.backgroundImage)}), ${screenshot.backgroundColor}`;
+  }
   if (screenshot.backgroundMode === "gradient") {
     const { from, via, to, angle } = resolveGradientColors(screenshot);
     if (via) {

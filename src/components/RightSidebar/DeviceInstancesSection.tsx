@@ -24,16 +24,14 @@ export const DeviceInstancesSection = ({
   <SidebarSection title="Devices">
     <div className="space-y-2">
       <button onClick={onAddDevice} className={STYLES.uploadButton}>
-        + Add Device
+        + Add device
       </button>
-      <p className="text-[11px] leading-4 text-gray-500">
-        Drag a device past the left or right edge to span adjacent screenshots.
-      </p>
 
       <div className="space-y-2 mt-3">
         {screenshot.devices.map((device, index) => {
           const spec = getDeviceSpecById(device.deviceId);
           const isSelected = screenshot.activeDeviceId === device.id;
+          const showLayers = screenshot.devices.length > 1;
 
           return (
             <div
@@ -49,33 +47,36 @@ export const DeviceInstancesSection = ({
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-gray-300 truncate">{spec.label}</p>
                 <p className="text-[10px] text-gray-500">
-                  {device.screenshotSrc ? "Image attached" : "No image"} · Layer{" "}
-                  {index + 1} of {screenshot.devices.length}
+                  {device.screenshotSrc ? "Image attached" : "No image"}
                 </p>
               </div>
               <div className="flex items-center gap-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSendBackward(device.id);
-                  }}
-                  disabled={index === 0}
-                  className={STYLES.iconButton}
-                  title="Send backward"
-                >
-                  <ArrowDown className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBringForward(device.id);
-                  }}
-                  disabled={index === screenshot.devices.length - 1}
-                  className={STYLES.iconButton}
-                  title="Bring forward"
-                >
-                  <ArrowUp className="w-3.5 h-3.5" />
-                </button>
+                {showLayers && (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSendBackward(device.id);
+                      }}
+                      disabled={index === 0}
+                      className={STYLES.iconButton}
+                      title="Send backward"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onBringForward(device.id);
+                      }}
+                      disabled={index === screenshot.devices.length - 1}
+                      className={STYLES.iconButton}
+                      title="Bring forward"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

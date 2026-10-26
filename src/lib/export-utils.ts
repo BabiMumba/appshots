@@ -989,10 +989,44 @@ const exportOneSize = async ({
         gradient.addColorStop(1, to);
       }
       ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else if (
+      screenshot.backgroundMode === "image" &&
+      screenshot.backgroundImage
+    ) {
+      ctx.fillStyle = screenshot.backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await new Promise<void>((resolve) => {
+        const bg = new Image();
+        bg.crossOrigin = "anonymous";
+        bg.onload = () => {
+          const imgAspect = bg.naturalWidth / bg.naturalHeight;
+          const canvasAspect = canvas.width / canvas.height;
+          let drawW: number;
+          let drawH: number;
+          if (imgAspect > canvasAspect) {
+            drawH = canvas.height;
+            drawW = drawH * imgAspect;
+          } else {
+            drawW = canvas.width;
+            drawH = drawW / imgAspect;
+          }
+          ctx.drawImage(
+            bg,
+            (canvas.width - drawW) / 2,
+            (canvas.height - drawH) / 2,
+            drawW,
+            drawH,
+          );
+          resolve();
+        };
+        bg.onerror = () => resolve();
+        bg.src = screenshot.backgroundImage!;
+      });
     } else {
       ctx.fillStyle = screenshot.backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const drawOneOverlay = async (overlayImg: (typeof screenshot.overlayImages)[number]) => {
       const img = new Image();

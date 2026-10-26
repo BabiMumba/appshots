@@ -70,10 +70,7 @@ export interface OverlayImageItemProps {
 export interface OverlayImagePropertiesProps {
   image: ImageOverlay;
   onSizeChange: (size: number) => void;
-  onRotationChange: (rotation: number) => void;
   onLayerChange: (layer: "behind" | "front") => void;
   onShadowToggle: () => void;
-  onShadowColorChange: (color: string) => void;
   onShadowBlurChange: (blur: number) => void;
-  onShadowOffsetYChange: (offsetY: number) => void;
 }

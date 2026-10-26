@@ -46,6 +46,7 @@ describe("getRenderableDevicesForScreenshot", () => {
       backgroundMode: "solid" as const,
       gradientPresetId: null,
       customGradient: null,
+      backgroundImage: null,
       textColor: "#ffffff",
       headlineX: 50,
       headlineY: 10,

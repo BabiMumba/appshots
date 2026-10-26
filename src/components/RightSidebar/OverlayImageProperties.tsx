@@ -1,30 +1,18 @@
 /**
- * OverlayImageProperties Component
- *
- * Properties panel for selected overlay image.
+ * OverlayImageProperties — essentials only (size + layer; rotate on canvas).
  */
 
 import { RangeSlider } from "./RangeSlider";
-import { ShadowControls } from "./ShadowControls";
+import { Toggle } from "./Toggle";
 import { STYLES, SLIDER_RANGES } from "./constants";
 import type { OverlayImagePropertiesProps } from "./types";
 
-/**
- * OverlayImageProperties - Image property controls
- *
- * Size, rotation, layer position, and shadow settings.
- *
- * @param props - Component props
- */
 export const OverlayImageProperties = ({
   image,
   onSizeChange,
-  onRotationChange,
   onLayerChange,
   onShadowToggle,
-  onShadowColorChange,
   onShadowBlurChange,
-  onShadowOffsetYChange,
 }: OverlayImagePropertiesProps) => (
   <div className={STYLES.propertiesPanel}>
     <RangeSlider
@@ -36,47 +24,36 @@ export const OverlayImageProperties = ({
       showValue={false}
     />
 
-    <RangeSlider
-      label="Rotation"
-      value={image.rotation ?? 0}
-      min={SLIDER_RANGES.imageRotation.min}
-      max={SLIDER_RANGES.imageRotation.max}
-      unit="°"
-      onChange={onRotationChange}
-    />
+    <label className="block">
+      <span className="text-xs text-gray-400 mb-1.5 block">Layer</span>
+      <select
+        value={image.layer ?? "front"}
+        onChange={(e) =>
+          onLayerChange(e.target.value === "behind" ? "behind" : "front")
+        }
+        className={STYLES.select}
+      >
+        <option value="front">In front of device</option>
+        <option value="behind">Behind device</option>
+      </select>
+    </label>
 
-    <div>
-      <label className="block text-xs text-gray-400 mb-1">Layer Position</label>
-      <div className="flex gap-1">
-        <button
-          onClick={() => onLayerChange("behind")}
-          className={`${STYLES.modeButton} transition-colors ${
-            image.layer === "behind"
-              ? STYLES.modeButtonActive
-              : "bg-[#333] text-gray-300 hover:bg-[#444]"
-          }`}
-        >
-          Behind Device
-        </button>
-        <button
-          onClick={() => onLayerChange("front")}
-          className={`${STYLES.modeButton} transition-colors ${
-            (image.layer ?? "front") === "front"
-              ? STYLES.modeButtonActive
-              : "bg-[#333] text-gray-300 hover:bg-[#444]"
-          }`}
-        >
-          In Front
-        </button>
-      </div>
+    <div className="pt-1 border-t border-white/10 space-y-2">
+      <Toggle
+        label="Shadow"
+        enabled={Boolean(image.shadow?.enabled)}
+        onChange={onShadowToggle}
+      />
+      {image.shadow?.enabled && (
+        <RangeSlider
+          label="Blur"
+          value={image.shadow.blur}
+          min={SLIDER_RANGES.shadowBlur.min}
+          max={SLIDER_RANGES.shadowBlur.max}
+          unit="px"
+          onChange={onShadowBlurChange}
+        />
+      )}
     </div>
-
-    <ShadowControls
-      shadow={image.shadow}
-      onToggle={onShadowToggle}
-      onColorChange={onShadowColorChange}
-      onBlurChange={onShadowBlurChange}
-      onOffsetYChange={onShadowOffsetYChange}
-    />
   </div>
 );

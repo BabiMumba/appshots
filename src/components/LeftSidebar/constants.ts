@@ -51,4 +51,8 @@ export const STYLES = {
   /** Primary action button */
   primaryButton:
     "w-full mt-3 bg-white hover:bg-neutral-200 text-black font-medium py-2.5 rounded-lg transition-colors",
+
+  /** Native select */
+  select:
+    "w-full bg-[#2a2a2a] hover:bg-[#333] text-white text-sm rounded-md px-3 py-2 border border-transparent hover:border-white/10 outline-none focus:ring-1 focus:ring-white cursor-pointer",
 } as const;

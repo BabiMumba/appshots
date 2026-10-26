@@ -120,6 +120,8 @@ export type Screenshot = {
   gradientPresetId: string | null;
   /** When set, overrides preset colors for custom gradients */
   customGradient: CustomGradient | null;
+  /** Data URL or path when backgroundMode is "image" */
+  backgroundImage: string | null;
   /** @deprecated Prefer per-text color */
   textColor: string;
   /** @deprecated */

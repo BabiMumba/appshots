@@ -1,138 +1,53 @@
 /**
- * PositionPresets Component
- *
- * Quick position presets for device positioning.
- * Allows users to quickly apply common device layouts.
+ * PositionPresets — one dropdown for common device layouts.
  */
 
-import { useState } from "react";
-import { ChevronUp, ChevronDown } from "lucide-react";
 import type { DeviceInstance } from "../../types";
+import { STYLES } from "./constants";
 
 interface PositionPresetsProps {
   device: DeviceInstance;
   onUpdateDevice: (updates: Partial<DeviceInstance>) => void;
 }
 
-interface Preset {
+const PRESETS: {
   id: string;
   label: string;
-  icon: React.ReactNode;
   settings: Partial<DeviceInstance>;
-}
-
-/**
- * Device icon component for preset thumbnails
- */
-const DeviceIcon = ({
-  rotation = 0,
-  offsetY = 50,
-  scale = 60,
-  is3D = false,
-  rotateY = 0,
-}: {
-  rotation?: number;
-  offsetY?: number;
-  scale?: number;
-  is3D?: boolean;
-  rotateY?: number;
-}) => {
-  const height = (scale / 100) * 32;
-  const top = ((offsetY - 50) / 100) * 20;
-
-  return (
-    <div
-      className="w-8 h-10 flex items-center justify-center"
-      style={{
-        perspective: is3D ? "100px" : undefined,
-      }}
-    >
-      <div
-        className="border-2 border-zinc-500 rounded-sm"
-        style={{
-          width: "14px",
-          height: `${height}px`,
-          transform: is3D
-            ? `rotateY(${rotateY}deg) rotateX(5deg)`
-            : `rotate(${rotation}deg) translateY(${top}px)`,
-          transformStyle: is3D ? "preserve-3d" : undefined,
-        }}
-      />
-    </div>
-  );
-};
-
-const PRESETS: Preset[] = [
+}[] = [
   {
     id: "centered",
     label: "Centered",
-    icon: <DeviceIcon offsetY={50} scale={65} />,
-    settings: {
-      scale: 65,
-      y: 35,
-      rotation: 0,
-      style: "flat",
-    },
+    settings: { scale: 65, y: 35, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
   },
   {
     id: "bleed-bottom",
-    label: "Bleed Bottom",
-    icon: <DeviceIcon offsetY={70} scale={70} />,
-    settings: {
-      scale: 70,
-      y: 45,
-      rotation: 0,
-      style: "flat",
-    },
+    label: "Bleed bottom",
+    settings: { scale: 70, y: 45, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
   },
   {
     id: "bleed-top",
-    label: "Bleed Top",
-    icon: <DeviceIcon offsetY={30} scale={70} />,
-    settings: {
-      scale: 70,
-      y: 15,
-      rotation: 0,
-      style: "flat",
-    },
+    label: "Bleed top",
+    settings: { scale: 70, y: 15, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
   },
   {
     id: "float-center",
-    label: "Float Center",
-    icon: <DeviceIcon offsetY={50} scale={55} />,
-    settings: {
-      scale: 55,
-      y: 30,
-      rotation: 0,
-      style: "flat",
-    },
+    label: "Float center",
+    settings: { scale: 55, y: 30, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
   },
   {
     id: "tilt-left",
-    label: "Tilt Left",
-    icon: <DeviceIcon rotation={-15} offsetY={50} scale={60} />,
-    settings: {
-      scale: 60,
-      y: 35,
-      rotation: -15,
-      style: "flat",
-    },
+    label: "Tilt left",
+    settings: { scale: 60, y: 35, rotation: -15, style: "flat", rotateY: 0, rotateX: 0 },
   },
   {
     id: "tilt-right",
-    label: "Tilt Right",
-    icon: <DeviceIcon rotation={15} offsetY={50} scale={60} />,
-    settings: {
-      scale: 60,
-      y: 35,
-      rotation: 15,
-      style: "flat",
-    },
+    label: "Tilt right",
+    settings: { scale: 60, y: 35, rotation: 15, style: "flat", rotateY: 0, rotateX: 0 },
   },
   {
     id: "perspective",
-    label: "Perspective",
-    icon: <DeviceIcon is3D rotateY={-20} offsetY={50} scale={60} />,
+    label: "Perspective (3D)",
     settings: {
       scale: 60,
       y: 35,
@@ -144,95 +59,52 @@ const PRESETS: Preset[] = [
   },
   {
     id: "float-bottom",
-    label: "Float Bottom",
-    icon: <DeviceIcon offsetY={65} scale={50} />,
-    settings: {
-      scale: 50,
-      y: 50,
-      rotation: 0,
-      style: "flat",
-    },
+    label: "Float bottom",
+    settings: { scale: 50, y: 50, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
   },
 ];
 
-/**
- * PositionPresets - Quick device positioning presets
- */
+function matchPreset(device: DeviceInstance): string {
+  for (const preset of PRESETS) {
+    const s = preset.settings;
+    if (
+      device.scale === s.scale &&
+      device.y === s.y &&
+      device.rotation === s.rotation &&
+      device.style === s.style
+    ) {
+      return preset.id;
+    }
+  }
+  return "";
+}
+
 export const PositionPresets = ({
   device,
   onUpdateDevice,
 }: PositionPresetsProps) => {
-  const [isExpanded, setIsExpanded] = useState(true);
-
-  // Determine active preset based on current settings
-  const getActivePreset = (): string | null => {
-    for (const preset of PRESETS) {
-      const { settings } = preset;
-      const matches =
-        device.scale === settings.scale &&
-        device.y === settings.y &&
-        device.rotation === settings.rotation &&
-        device.style === settings.style;
-      if (matches) return preset.id;
-    }
-    return null;
-  };
-
-  const activePreset = getActivePreset();
-
-  const handlePresetClick = (preset: Preset) => {
-    onUpdateDevice(preset.settings);
-  };
+  const active = matchPreset(device);
 
   return (
-    <div className="border-b border-zinc-800">
-      {/* Header */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between p-4 hover:bg-zinc-800/50 transition-colors"
+    <label className="block">
+      <span className="text-xs text-gray-400 mb-1.5 block">Layout preset</span>
+      <select
+        value={active || "__custom__"}
+        onChange={(e) => {
+          const preset = PRESETS.find((p) => p.id === e.target.value);
+          if (preset) onUpdateDevice(preset.settings);
+        }}
+        className={STYLES.select}
       >
-        <span className="text-sm font-medium text-white">Position Presets</span>
-        {isExpanded ? (
-          <ChevronUp className="w-4 h-4 text-zinc-400" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-zinc-400" />
-        )}
-      </button>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="px-4 pb-4">
-          <div className="grid grid-cols-4 gap-2">
-            {PRESETS.map((preset) => {
-              const isActive = activePreset === preset.id;
-              return (
-                <button
-                  key={preset.id}
-                  onClick={() => handlePresetClick(preset)}
-                  className={`flex flex-col items-center gap-1.5 p-2 rounded-lg transition-all ${
-                    isActive
-                      ? "bg-violet-600/20 ring-2 ring-violet-500"
-                      : "bg-zinc-800 hover:bg-zinc-700"
-                  }`}
-                >
-                  <div
-                    className={`${isActive ? "text-violet-400" : "text-zinc-500"}`}
-                  >
-                    {preset.icon}
-                  </div>
-                  <span
-                    className={`text-[10px] leading-tight text-center ${
-                      isActive ? "text-violet-400" : "text-zinc-400"
-                    }`}
-                  >
-                    {preset.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
+        <option value="__custom__" disabled>
+          Custom
+        </option>
+        {PRESETS.map((preset) => (
+          <option key={preset.id} value={preset.id}>
+            {preset.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 };

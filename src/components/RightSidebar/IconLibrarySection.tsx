@@ -74,6 +74,20 @@ const glassIconPresets: IconPreset[] = [
   },
 ];
 
+/** Laurel pair — place left + right around a download count / badge */
+const awardsIconPresets: IconPreset[] = [
+  {
+    name: "Laurel left",
+    src: "/icons/laurel-left.png",
+    tileClassName: "bg-[#2a2418] hover:bg-[#3a3220]",
+  },
+  {
+    name: "Laurel right",
+    src: "/icons/laurel-right.png",
+    tileClassName: "bg-[#2a2418] hover:bg-[#3a3220]",
+  },
+];
+
 const iconPacks = {
   emoji: {
     label: "Emoji",
@@ -86,6 +100,12 @@ const iconPacks = {
     title: "Liquid glass",
     subtitle: "Glossy color, ready to use",
     presets: glassIconPresets,
+  },
+  awards: {
+    label: "Awards",
+    title: "Awards",
+    subtitle: "Laurels to frame download counts",
+    presets: awardsIconPresets,
   },
 } as const;
 
@@ -124,7 +144,7 @@ export const IconLibrarySection = ({
             </span>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-black/20 p-1">
+          <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-black/20 p-1">
             {(Object.keys(iconPacks) as IconPackId[]).map((packId) => (
               <button
                 key={packId}
@@ -168,9 +188,8 @@ export const IconLibrarySection = ({
           ))}
         </div>
 
-        <p className="border-t border-white/10 px-3 py-2 text-[10px] leading-relaxed text-gray-500">
-          Click a sticker to place it on the canvas. Drag, resize, or rotate it
-          from the overlay controls below.
+        <p className="border-t border-white/10 px-3 py-2 text-[10px] text-gray-500">
+          Click to place · drag on canvas to move
         </p>
       </div>
     </SidebarSection>
