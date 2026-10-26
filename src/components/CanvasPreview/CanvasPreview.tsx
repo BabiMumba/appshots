@@ -62,6 +62,7 @@ export const CanvasPreview = () => {
     removeDevice,
     activeScreenshot,
     moveElementLayer,
+    fileInputRef,
     inlineEditing,
     startInlineEditing,
     stopInlineEditing,
@@ -308,6 +309,23 @@ export const CanvasPreview = () => {
                 onElementMouseUp={handleElementMouseUp}
                 onResizeStart={handleResizeStart}
                 onRotateStart={handleRotateStart}
+                onDeviceDoubleClick={(screenshotId, deviceId) => {
+                  if (activeScreenshotId !== screenshotId) {
+                    setActiveScreenshotId(screenshotId);
+                  }
+                  updateScreenshotById(screenshotId, {
+                    activeDeviceId: deviceId,
+                  });
+                  setSelectedElement({
+                    type: "device",
+                    id: deviceId,
+                    screenshotId,
+                  });
+                  // Wait for sidebar file input to mount/sync with activeDevice
+                  window.setTimeout(() => {
+                    fileInputRef.current?.click();
+                  }, 50);
+                }}
                 editingTextId={
                   inlineEditing?.screenshotId === screenshot.id
                     ? inlineEditing.textId

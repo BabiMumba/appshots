@@ -31,6 +31,7 @@ interface DeviceContainerProps {
   ) => void;
   onRotateStart?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  onDoubleClick?: (e: React.MouseEvent) => void;
   shadowScale?: number;
 }
 
@@ -50,6 +51,7 @@ export const DeviceContainer = ({
   onResizeStart,
   onRotateStart,
   onContextMenu,
+  onDoubleClick,
   shadowScale = 1,
 }: DeviceContainerProps) => {
   const is3D = device.style === "3d";
@@ -71,6 +73,14 @@ export const DeviceContainer = ({
       }}
       onMouseDown={isInteractive ? onMouseDown : undefined}
       onContextMenu={isInteractive ? onContextMenu : undefined}
+      onDoubleClick={
+        isInteractive
+          ? (e) => {
+              e.stopPropagation();
+              onDoubleClick?.(e);
+            }
+          : undefined
+      }
       onClick={(e) => e.stopPropagation()}
     >
       <div
