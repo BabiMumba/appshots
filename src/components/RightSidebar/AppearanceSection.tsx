@@ -1,69 +1,86 @@
 /**
- * AppearanceSection Component
- *
- * Visual appearance controls including background, text color, font, and screenshot image.
+ * AppearanceSection — background + selected-text color/font fallbacks.
  */
 
 import { ChevronDown } from "lucide-react";
 import type { Screenshot, GradientPreset } from "../../types";
+import { useEditor } from "../../context/EditorContext";
 import { SidebarSection } from "./SidebarSection";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { STYLES } from "./constants";
 
 interface AppearanceSectionProps {
-  /** Active screenshot data */
   screenshot: Screenshot;
-  /** Available gradient presets */
   gradientPresets: GradientPreset[];
-  /** Update screenshot handler */
   onUpdateScreenshot: (updates: Partial<Screenshot>) => void;
-  /** Open font picker handler */
   onOpenFontPicker: () => void;
 }
 
-/**
- * AppearanceSection - Visual appearance controls
- *
- * Background, text color, font, and screenshot image settings.
- *
- * @param props - Component props
- */
 export const AppearanceSection = ({
   screenshot,
   gradientPresets,
   onUpdateScreenshot,
   onOpenFontPicker,
-}: AppearanceSectionProps) => (
-  <SidebarSection title="Appearance">
-    <div className="space-y-4">
-      {/* Background */}
-      <BackgroundPicker
-        screenshot={screenshot}
-        gradientPresets={gradientPresets}
-        onUpdateScreenshot={onUpdateScreenshot}
-      />
+}: AppearanceSectionProps) => {
+  const { selectedElement, updateText } = useEditor();
 
-      {/* Text Color */}
-      <div>
-        <label className="block text-xs text-gray-400 mb-1">Text Color</label>
-        <input
-          type="color"
-          value={screenshot.textColor}
-          onChange={(e) => onUpdateScreenshot({ textColor: e.target.value })}
-          className={STYLES.colorInput}
+  const textId =
+    selectedElement?.screenshotId === screenshot.id &&
+    selectedElement.type === "text"
+      ? selectedElement.id
+      : null;
+
+  const text = textId
+    ? (screenshot.texts ?? []).find((t) => t.id === textId)
+    : null;
+
+  const currentColor = text?.color ?? screenshot.textColor ?? "#ffffff";
+  const currentFont = text?.fontFamily ?? screenshot.fontFamily ?? "Inter";
+
+  return (
+    <SidebarSection title="Appearance">
+      <div className="space-y-4">
+        <BackgroundPicker
+          screenshot={screenshot}
+          gradientPresets={gradientPresets}
+          onUpdateScreenshot={onUpdateScreenshot}
         />
-      </div>
 
-      {/* Font Style */}
-      <div>
-        <label className="block text-xs text-gray-400 mb-1">Font Style</label>
-        <button onClick={onOpenFontPicker} className={STYLES.dropdownButton}>
-          <span style={{ fontFamily: `'${screenshot.fontFamily}', sans-serif` }}>
-            {screenshot.fontFamily}
-          </span>
-          <ChevronDown size={16} className="text-gray-400" />
-        </button>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">
+            Text Color{text ? " · selected" : ""}
+          </label>
+          <input
+            type="color"
+            value={
+              /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(currentColor)
+                ? currentColor
+                : "#ffffff"
+            }
+            onChange={(e) => {
+              const color = e.target.value;
+              if (textId) updateText(textId, { color });
+              else onUpdateScreenshot({ textColor: color });
+            }}
+            className={STYLES.colorInput}
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">
+            Font{text ? " · selected" : " (select text)"}
+          </label>
+          <button onClick={onOpenFontPicker} className={STYLES.dropdownButton}>
+            <span style={{ fontFamily: `'${currentFont}', sans-serif` }}>
+              {currentFont}
+            </span>
+            <ChevronDown size={16} className="text-gray-400" />
+          </button>
+          <p className="mt-1 text-[10px] text-gray-500">
+            Opens the font library — also in the top format bar.
+          </p>
+        </div>
       </div>
-    </div>
-  </SidebarSection>
-);
+    </SidebarSection>
+  );
+};

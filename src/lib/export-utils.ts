@@ -5,18 +5,26 @@ import type {
   ExportSize,
   DeviceInstance,
 } from "../types";
-import { gradientPresets } from "../constants";
+import { getExportFilename, getExportZipName } from "../constants";
 import { drawRichText } from "./rich-text-canvas";
 import { getDeviceColorById, getDeviceSpecById } from "./device-instances";
 import { getRenderableDevicesForScreenshot } from "./device-overflow";
+import {
+  gradientEndpoints,
+  resolveGradientColors,
+} from "./gradient-style";
+import { drawCoverImage } from "./screen-image";
+import { ensureLayerOrder } from "./layer-order";
+import { exportUiScale } from "./design-scale";
 import JSZip from "jszip";
 
 interface ExportOptions {
   screenshots: Screenshot[];
-  exportSize: ExportSize;
-  previewDimensions: { width: number; height: number };
-  headlineFontSize: number;
-  subheadlineFontSize: number;
+  exportSizes: ExportSize[];
+  /** @deprecated use exportSizes — kept for single-size callers */
+  exportSize?: ExportSize;
+  /** Width the user designed against (active preview export size) */
+  designWidth?: number;
 }
 
 /**
@@ -47,23 +55,25 @@ const downloadFile = (dataURL: string, filename: string) => {
 /**
  * Download multiple files as ZIP
  */
-const downloadAsZip = async (files: { name: string; data: string }[]) => {
+const downloadAsZip = async (
+  files: { name: string; data: string }[],
+  zipName: string,
+) => {
   const zip = new JSZip();
-  
+
   for (const file of files) {
     const blob = dataURLtoBlob(file.data);
     zip.file(file.name, blob);
   }
-  
+
   const content = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(content);
-  
+
   const link = document.createElement("a");
-  link.download = "appstore-screenshots.zip";
+  link.download = zipName;
   link.href = url;
   link.click();
-  
-  // Clean up
+
   URL.revokeObjectURL(url);
 };
 
@@ -258,6 +268,9 @@ const renderDeviceToOffscreen = async (
   screenshotSrc: string | null,
   scaleX: number,
   isSamsung: boolean,
+  imageZoom: number = 1,
+  imageOffsetX: number = 0,
+  imageOffsetY: number = 0,
 ): Promise<HTMLCanvasElement> => {
   const offscreen = document.createElement("canvas");
   offscreen.width = Math.ceil(deviceWidthPx);
@@ -338,7 +351,19 @@ const renderDeviceToOffscreen = async (
         ctx.beginPath();
         ctx.roundRect(screenX, screenY, screenW, screenH, screenRadius);
         ctx.clip();
-        ctx.drawImage(img, screenX, screenY, screenW, screenH);
+        drawCoverImage(
+          ctx,
+          img,
+          img.naturalWidth,
+          img.naturalHeight,
+          screenX,
+          screenY,
+          screenW,
+          screenH,
+          imageZoom,
+          imageOffsetX,
+          imageOffsetY,
+        );
         ctx.restore();
         resolve();
       };
@@ -427,7 +452,9 @@ const drawDeviceInstance = async (
   const cornerRadiusY = deviceHeightPx * outerRadiusYPct;
   const frameRadius = Math.min(cornerRadiusX, cornerRadiusY);
   const bezelThickness = deviceWidthPx * 0.012;
-  const isSamsungDevice = selectedDevice.id.startsWith("samsung-");
+  const isSamsungDevice =
+    selectedDevice.id.startsWith("samsung-") ||
+    selectedDevice.id.startsWith("pixel-");
 
   if (device.style === "3d") {
     const rotYDeg = device.rotateY ?? -15;
@@ -452,6 +479,9 @@ const drawDeviceInstance = async (
       device.screenshotSrc,
       scaleX,
       isSamsungDevice,
+      device.imageZoom ?? 1,
+      device.imageOffsetX ?? 0,
+      device.imageOffsetY ?? 0,
     );
 
     const SLICE_COUNT = 40;
@@ -839,7 +869,19 @@ const drawDeviceInstance = async (
         ctx.beginPath();
         ctx.roundRect(screenX, screenY, screenWidthPx, screenHeightPx, screenRadius);
         ctx.clip();
-        ctx.drawImage(img, screenX, screenY, screenWidthPx, screenHeightPx);
+        drawCoverImage(
+          ctx,
+          img,
+          img.naturalWidth,
+          img.naturalHeight,
+          screenX,
+          screenY,
+          screenWidthPx,
+          screenHeightPx,
+          device.imageZoom ?? 1,
+          device.imageOffsetX ?? 0,
+          device.imageOffsetY ?? 0,
+        );
         ctx.restore();
         resolve();
       };
@@ -893,21 +935,24 @@ const drawDeviceInstance = async (
   ctx.restore();
 };
 
-export const exportScreenshots = async ({
+const exportOneSize = async ({
   screenshots,
   exportSize,
-  previewDimensions,
-  headlineFontSize,
-  subheadlineFontSize,
-}: ExportOptions) => {
-  // Wait for fonts to be loaded before exporting
-  await document.fonts.ready;
-
+  designWidth,
+}: {
+  screenshots: Screenshot[];
+  exportSize: ExportSize;
+  designWidth: number;
+}): Promise<{ name: string; data: string }[]> => {
   const exportedFiles: { name: string; data: string }[] = [];
+  const sizeFolder =
+    exportSize.store === "play"
+      ? `play-${exportSize.width}x${exportSize.height}`
+      : `ios-${exportSize.width}x${exportSize.height}`;
 
   for (let i = 0; i < screenshots.length; i++) {
     const screenshot = screenshots[i];
-    const filename = `appstore-screenshot-${i + 1}.png`;
+    const filename = `${sizeFolder}/${getExportFilename(exportSize, i, screenshots.length)}`;
 
     const canvas = document.createElement("canvas");
     canvas.width = exportSize.width;
@@ -915,139 +960,195 @@ export const exportScreenshots = async ({
     const ctx = canvas.getContext("2d");
     if (!ctx) continue;
 
-    // Scale factor for export - use actual preview dimensions for accurate scaling
-    // This ensures export matches preview exactly
-    const scaleX = canvas.width / previewDimensions.width;
-    // Account for padding (4px * 2) in preview to match text wrapping
+    // UI strokes/shadows were tuned around ~400px preview; scale to export
+    const scaleX = exportUiScale(canvas.width);
+    // Match TextElement padding: 4px at 400-wide preview → scale to export
     const paddingX = 8 * scaleX;
 
-    // Draw background
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // Opaque fill first (Apple rejects transparency)
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     if (screenshot.backgroundMode === "gradient") {
-      const preset =
-        gradientPresets.find((p) => p.id === screenshot.gradientPresetId) ??
-        gradientPresets[0];
-      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, preset.from);
-      gradient.addColorStop(1, preset.to);
+      const { from, via, to, angle } = resolveGradientColors(screenshot);
+      const { x0, y0, x1, y1 } = gradientEndpoints(
+        canvas.width,
+        canvas.height,
+        angle,
+      );
+      const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+      if (via) {
+        gradient.addColorStop(0, from);
+        gradient.addColorStop(0.5, via);
+        gradient.addColorStop(1, to);
+      } else {
+        gradient.addColorStop(0, from);
+        gradient.addColorStop(1, to);
+      }
       ctx.fillStyle = gradient;
     } else {
       ctx.fillStyle = screenshot.backgroundColor;
     }
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Helper to draw overlay images
-    const drawOverlayImages = async (layer: "behind" | "front") => {
-      const images = screenshot.overlayImages.filter(
-        (img) => (img.layer ?? "front") === layer,
-      );
-      for (const overlayImg of images) {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        await new Promise<void>((resolve) => {
-          img.onload = () => {
-            const containerWidth = canvas.width * (overlayImg.width / 100);
-            const containerHeight = canvas.height * (overlayImg.height / 100);
-            const imgAspect = img.naturalWidth / img.naturalHeight;
-            const containerAspect = containerWidth / containerHeight;
+    const drawOneOverlay = async (overlayImg: (typeof screenshot.overlayImages)[number]) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve) => {
+        img.onload = () => {
+          const containerWidth = canvas.width * (overlayImg.width / 100);
+          const containerHeight = canvas.height * (overlayImg.height / 100);
+          const imgAspect = img.naturalWidth / img.naturalHeight;
+          const containerAspect = containerWidth / containerHeight;
 
-            let drawWidth: number;
-            let drawHeight: number;
+          let drawWidth: number;
+          let drawHeight: number;
 
-            if (imgAspect > containerAspect) {
-              drawWidth = containerWidth;
-              drawHeight = containerWidth / imgAspect;
-            } else {
-              drawHeight = containerHeight;
-              drawWidth = containerHeight * imgAspect;
-            }
+          if (imgAspect > containerAspect) {
+            drawWidth = containerWidth;
+            drawHeight = containerWidth / imgAspect;
+          } else {
+            drawHeight = containerHeight;
+            drawWidth = containerHeight * imgAspect;
+          }
 
-            const centerX = canvas.width * (overlayImg.x / 100);
-            const centerY = canvas.height * (overlayImg.y / 100);
-            const rotation = overlayImg.rotation ?? 0;
+          const centerX = canvas.width * (overlayImg.x / 100);
+          const centerY = canvas.height * (overlayImg.y / 100);
+          const rotation = overlayImg.rotation ?? 0;
 
-            ctx.save();
-            ctx.translate(centerX, centerY);
-            ctx.rotate((rotation * Math.PI) / 180);
+          ctx.save();
+          ctx.translate(centerX, centerY);
+          ctx.rotate((rotation * Math.PI) / 180);
 
-            // Apply shadow if enabled
-            if (overlayImg.shadow?.enabled) {
-              ctx.shadowColor = overlayImg.shadow.color;
-              ctx.shadowBlur = overlayImg.shadow.blur * scaleX;
-              ctx.shadowOffsetX = overlayImg.shadow.offsetX * scaleX;
-              ctx.shadowOffsetY = overlayImg.shadow.offsetY * scaleX;
-            }
+          if (overlayImg.shadow?.enabled) {
+            ctx.shadowColor = overlayImg.shadow.color;
+            ctx.shadowBlur = overlayImg.shadow.blur * scaleX;
+            ctx.shadowOffsetX = overlayImg.shadow.offsetX * scaleX;
+            ctx.shadowOffsetY = overlayImg.shadow.offsetY * scaleX;
+          }
 
-            const imgX = -drawWidth / 2;
-            const imgY = -drawHeight / 2;
-
-            ctx.drawImage(img, imgX, imgY, drawWidth, drawHeight);
-            ctx.restore();
-            resolve();
-          };
-          img.onerror = () => resolve();
-          img.src = overlayImg.src;
-        });
-      }
+          ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+          ctx.restore();
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = overlayImg.src;
+      });
     };
 
-    // Draw overlay images behind device
-    await drawOverlayImages("behind");
+    const fontScale = canvas.width / Math.max(designWidth, 1);
+    const lineHeight = 1.1;
+
+    const toUpperHtml = (html: string) =>
+      html.replace(
+        /(>|^)([^<]+)/g,
+        (_m, prefix: string, text: string) => prefix + text.toLocaleUpperCase(),
+      );
+
+    const drawTextOverlay = (text: (typeof screenshot.texts)[number]) => {
+      const html = text.uppercase ? toUpperHtml(text.content) : text.content;
+      drawRichText(ctx, html, {
+        x: canvas.width * (text.x / 100),
+        y: canvas.height * (text.y / 100),
+        maxWidth: canvas.width * (text.width / 100) - paddingX,
+        fontSize: text.fontSize * fontScale,
+        fontFamily: `'${text.fontFamily}', sans-serif`,
+        defaultColor: text.color,
+        lineHeight,
+        textAlign: text.align ?? "center",
+        fontWeight: text.fontWeight ?? 700,
+      });
+    };
 
     const renderableDevices = getRenderableDevicesForScreenshot(screenshots, i);
-    for (const { device, localX } of renderableDevices) {
-      await drawDeviceInstance(ctx, canvas, device, scaleX, localX);
+    const layerOrder = ensureLayerOrder(screenshot);
+
+    for (const key of layerOrder) {
+      if (key.startsWith("text:")) {
+        const textId = key.slice(5);
+        const text = (screenshot.texts ?? []).find((t) => t.id === textId);
+        if (text) drawTextOverlay(text);
+      } else if (key.startsWith("image:")) {
+        const imageId = key.slice(6);
+        const overlay = screenshot.overlayImages.find((img) => img.id === imageId);
+        if (overlay) await drawOneOverlay(overlay);
+      } else if (key.startsWith("device:")) {
+        const deviceId = key.slice(7);
+        const match = renderableDevices.find(
+          (item) =>
+            item.device.id === deviceId &&
+            item.ownerScreenshotId === screenshot.id,
+        );
+        if (match) {
+          await drawDeviceInstance(ctx, canvas, match.device, scaleX, match.localX);
+        }
+      }
     }
 
-    const fontFamily = `'${screenshot.fontFamily}', sans-serif`;
-    const exportHeadlineFontSize = (headlineFontSize / 3) * scaleX;
-    const exportSubheadlineFontSize = (subheadlineFontSize / 3) * scaleX;
-    const lineHeight = 1.1;
-    const headlineMaxWidth =
-      canvas.width * (screenshot.headlineWidth / 100) - paddingX;
-    const subheadlineMaxWidth =
-      canvas.width * (screenshot.subheadlineWidth / 100) - paddingX;
-    const headlineX = canvas.width * (screenshot.headlineX / 100);
-    const headlineTextY = canvas.height * (screenshot.headlineY / 100);
+    // Overflow devices from neighbors (not in this screenshot's layerOrder)
+    for (const item of renderableDevices) {
+      if (item.ownerScreenshotId === screenshot.id) continue;
+      await drawDeviceInstance(ctx, canvas, item.device, scaleX, item.localX);
+    }
 
-    drawRichText(ctx, screenshot.headline, {
-      x: headlineX,
-      y: headlineTextY,
-      maxWidth: headlineMaxWidth,
-      fontSize: exportHeadlineFontSize,
-      fontFamily,
-      defaultColor: screenshot.textColor,
-      lineHeight,
-      textAlign: "center",
-      fontWeight: 700,
+    // Flatten to opaque PNG (no alpha channel)
+    const flat = document.createElement("canvas");
+    flat.width = canvas.width;
+    flat.height = canvas.height;
+    const flatCtx = flat.getContext("2d");
+    if (!flatCtx) continue;
+    flatCtx.fillStyle = "#ffffff";
+    flatCtx.fillRect(0, 0, flat.width, flat.height);
+    flatCtx.drawImage(canvas, 0, 0);
+
+    exportedFiles.push({
+      name: filename,
+      data: flat.toDataURL("image/png"),
     });
-
-    const subheadlineX = canvas.width * (screenshot.subheadlineX / 100);
-    const subheadlineTextY = canvas.height * (screenshot.subheadlineY / 100);
-
-    drawRichText(ctx, screenshot.subheadline, {
-      x: subheadlineX,
-      y: subheadlineTextY,
-      maxWidth: subheadlineMaxWidth,
-      fontSize: exportSubheadlineFontSize,
-      fontFamily,
-      defaultColor: screenshot.textColor,
-      lineHeight,
-      textAlign: "center",
-      fontWeight: 600,
-    });
-
-    // Draw overlay images in front of device
-    await drawOverlayImages("front");
-
-    // Add to exported files
-    const dataURL = canvas.toDataURL("image/png");
-    exportedFiles.push({ name: filename, data: dataURL });
   }
 
-  // Download: single file directly, multiple files as ZIP
-  if (exportedFiles.length === 1) {
-    downloadFile(exportedFiles[0].data, exportedFiles[0].name);
-  } else if (exportedFiles.length > 1) {
-    await downloadAsZip(exportedFiles);
+  return exportedFiles;
+};
+
+export const exportScreenshots = async ({
+  screenshots,
+  exportSizes: sizesArg,
+  exportSize,
+  designWidth,
+}: ExportOptions) => {
+  await document.fonts.ready;
+
+  // Ensure webfonts used on canvas are ready (extra tick after fonts.ready)
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+  const sizes =
+    sizesArg && sizesArg.length > 0
+      ? sizesArg
+      : exportSize
+        ? [exportSize]
+        : [];
+
+  if (sizes.length === 0) return;
+
+  const baseWidth = designWidth || exportSize?.width || sizes[0].width;
+  const exportedFiles: { name: string; data: string }[] = [];
+
+  for (const size of sizes) {
+    const files = await exportOneSize({
+      screenshots,
+      exportSize: size,
+      designWidth: baseWidth,
+    });
+    exportedFiles.push(...files);
+  }
+
+  if (exportedFiles.length === 1 && sizes.length === 1) {
+    const singleName = getExportFilename(sizes[0], 0, 1);
+    downloadFile(exportedFiles[0].data, singleName);
+  } else if (exportedFiles.length >= 1) {
+    await downloadAsZip(exportedFiles, getExportZipName(sizes));
   }
 };

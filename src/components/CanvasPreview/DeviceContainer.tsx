@@ -25,6 +25,13 @@ interface DeviceContainerProps {
   isInteractive: boolean;
   /** Handler for mouse down event */
   onMouseDown: (e: React.MouseEvent) => void;
+  onResizeStart?: (
+    e: React.MouseEvent,
+    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
+  ) => void;
+  onRotateStart?: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  shadowScale?: number;
 }
 
 /**
@@ -40,6 +47,10 @@ export const DeviceContainer = ({
   isSelected,
   isInteractive,
   onMouseDown,
+  onResizeStart,
+  onRotateStart,
+  onContextMenu,
+  shadowScale = 1,
 }: DeviceContainerProps) => {
   const is3D = device.style === "3d";
   const selectedDevice = getDeviceSpecById(device.deviceId);
@@ -55,10 +66,11 @@ export const DeviceContainer = ({
         top: `${device.y}%`,
         transform: "translateX(-50%)",
         zIndex,
-        filter: getDropShadowFilter(device.shadow),
-        perspective: is3D ? "1200px" : undefined,
+        filter: getDropShadowFilter(device.shadow, shadowScale),
+        perspective: is3D ? `${1200 * shadowScale}px` : undefined,
       }}
       onMouseDown={isInteractive ? onMouseDown : undefined}
+      onContextMenu={isInteractive ? onContextMenu : undefined}
       onClick={(e) => e.stopPropagation()}
     >
       <div
@@ -91,7 +103,14 @@ export const DeviceContainer = ({
             selectedColor={selectedColor}
           />
         )}
-        {isSelected && <SelectionHandles />}
+        {isSelected && isInteractive && (
+          <SelectionHandles
+            showCorners
+            showRotation={!is3D}
+            onResizeStart={onResizeStart}
+            onRotateStart={onRotateStart}
+          />
+        )}
       </div>
     </div>
   );

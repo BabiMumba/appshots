@@ -63,6 +63,36 @@ export function parseRichText(html: string, defaultColor: string): StyledSegment
     backgroundColor: string | null;
   }
 
+  const pushNewline = (state: StyleState) => {
+    const last = segments[segments.length - 1];
+    if (last?.text === "\n") return;
+    segments.push({
+      text: "\n",
+      bold: state.bold,
+      italic: state.italic,
+      underline: state.underline,
+      color: state.color,
+      backgroundColor: state.backgroundColor,
+    });
+  };
+
+  const isBlockTag = (tagName: string) =>
+    tagName === "div" ||
+    tagName === "p" ||
+    tagName === "li" ||
+    tagName === "h1" ||
+    tagName === "h2" ||
+    tagName === "h3" ||
+    tagName === "h4" ||
+    tagName === "h5" ||
+    tagName === "h6" ||
+    tagName === "tr" ||
+    tagName === "blockquote";
+
+  // True once any visible text (or explicit break) was emitted — used so a
+  // leading <div> from contenteditable does not insert a blank first line.
+  let hasContent = false;
+
   // Recursively walk the DOM tree
   function walkNode(node: Node, state: StyleState) {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -76,6 +106,7 @@ export function parseRichText(html: string, defaultColor: string): StyledSegment
           color: state.color,
           backgroundColor: state.backgroundColor,
         });
+        hasContent = true;
       }
       return;
     }
@@ -83,7 +114,7 @@ export function parseRichText(html: string, defaultColor: string): StyledSegment
     if (node.nodeType === Node.ELEMENT_NODE) {
       const element = node as HTMLElement;
       const tagName = element.tagName.toLowerCase();
-      
+
       // Clone state for children
       const childState: StyleState = { ...state };
 
@@ -100,7 +131,7 @@ export function parseRichText(html: string, defaultColor: string): StyledSegment
         case "u":
           childState.underline = true;
           break;
-        case "font":
+        case "font": {
           const fontColor = element.getAttribute("color");
           if (fontColor) {
             childState.color = fontColor;
@@ -109,10 +140,11 @@ export function parseRichText(html: string, defaultColor: string): StyledSegment
             childState.backgroundColor = element.style.backgroundColor;
           }
           break;
+        }
         case "mark":
           childState.backgroundColor = element.style.backgroundColor || "yellow";
           break;
-        case "span":
+        case "span": {
           // Check inline styles
           const style = element.style;
           if (style.fontWeight === "bold" || parseInt(style.fontWeight) >= 700) {
@@ -131,16 +163,16 @@ export function parseRichText(html: string, defaultColor: string): StyledSegment
             childState.backgroundColor = style.backgroundColor;
           }
           break;
+        }
         case "br":
-          segments.push({
-            text: "\n",
-            bold: state.bold,
-            italic: state.italic,
-            underline: state.underline,
-            color: state.color,
-            backgroundColor: state.backgroundColor,
-          });
+          pushNewline(state);
+          hasContent = true;
           return;
+      }
+
+      // contenteditable Enter → <div>/<p> blocks; mirror CSS block layout
+      if (isBlockTag(tagName) && hasContent) {
+        pushNewline(state);
       }
 
       // Process children
@@ -171,6 +203,36 @@ export function getPlainText(html: string): string {
 }
 
 /**
+ * Measure text with the CSS layout engine (matches editor preview).
+ * Falls back to canvas measureText when DOM is unavailable.
+ */
+let cssMeasureHost: HTMLSpanElement | null = null;
+
+function measureTextCss(
+  text: string,
+  font: string,
+  ctx: CanvasRenderingContext2D,
+): number {
+  if (typeof document !== "undefined") {
+    if (!cssMeasureHost) {
+      cssMeasureHost = document.createElement("span");
+      cssMeasureHost.setAttribute("aria-hidden", "true");
+      cssMeasureHost.style.cssText =
+        "position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre;margin:0;padding:0;border:0;";
+      document.body.appendChild(cssMeasureHost);
+    }
+    cssMeasureHost.style.font = font;
+    cssMeasureHost.textContent = text;
+    const width = cssMeasureHost.getBoundingClientRect().width;
+    if (width > 0 || text.length === 0) {
+      return width;
+    }
+  }
+  ctx.font = font;
+  return ctx.measureText(text).width;
+}
+
+/**
  * Render rich text segments onto a canvas
  */
 export function renderRichText(
@@ -189,17 +251,16 @@ export function renderRichText(
     fontWeight = 400,
   } = options;
 
-  // Build font string for a segment
+  // Build font string for a segment — match TextElement (font-bold / font-semibold)
   const buildFont = (segment: StyledSegment): string => {
     const weight = segment.bold ? 700 : fontWeight;
     const style = segment.italic ? "italic" : "normal";
     return `${style} ${weight} ${fontSize}px ${fontFamily}`;
   };
 
-  // Measure text width for a segment
+  // Measure text width for a segment (CSS engine ≈ editor wrap)
   const measureSegment = (segment: StyledSegment): number => {
-    ctx.font = buildFont(segment);
-    return ctx.measureText(segment.text).width;
+    return measureTextCss(segment.text, buildFont(segment), ctx);
   };
 
   const drawRoundedHighlight = (
@@ -291,16 +352,23 @@ export function renderRichText(
     }
 
     const wordWidth = word.width;
-    
-    // Check if word fits on current line
+    const isSpaceOnly =
+      word.segments.length === 1 && word.segments[0].text === " ";
+
+    // Check if word fits on current line (mirror CSS overflow-wrap)
     if (currentLineWidth + wordWidth <= maxWidth || currentLine.length === 0) {
       currentLine.push(word);
       currentLineWidth += wordWidth;
     } else {
-      // Start new line
+      // Start new line — drop the wrapping space (CSS does not keep it)
       lines.push({ words: currentLine, width: currentLineWidth });
-      currentLine = [word];
-      currentLineWidth = wordWidth;
+      if (isSpaceOnly) {
+        currentLine = [];
+        currentLineWidth = 0;
+      } else {
+        currentLine = [word];
+        currentLineWidth = wordWidth;
+      }
     }
   }
 
@@ -348,8 +416,9 @@ export function renderRichText(
 
     for (const word of line.words) {
       for (const segment of word.segments) {
-        ctx.font = buildFont(segment);
-        const width = ctx.measureText(segment.text).width;
+        const font = buildFont(segment);
+        ctx.font = font;
+        const width = measureTextCss(segment.text, font, ctx);
         positionedSegments.push({ segment, x: currentX, width });
         currentX += width;
       }

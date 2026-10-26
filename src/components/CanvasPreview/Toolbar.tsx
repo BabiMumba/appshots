@@ -4,38 +4,109 @@
  * Top toolbar for the canvas preview area with screenshot management controls.
  */
 
-import { Plus } from "lucide-react";
+import {
+  Plus,
+  Copy,
+  Undo2,
+  Redo2,
+  ChevronLeft,
+  ChevronRight,
+  Type,
+} from "lucide-react";
 
 interface ToolbarProps {
-  /** Callback to add a new screenshot */
   onAddScreenshot: () => void;
-  /** Total number of screenshots */
+  onAddText: () => void;
+  onDuplicateScreenshot: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
   screenshotCount: number;
 }
 
-/**
- * Toolbar - Canvas top toolbar with controls
- *
- * Displays the "Add Screenshot" button and screenshot count.
- *
- * @param props - Component props
- * @param props.onAddScreenshot - Handler for adding new screenshot
- * @param props.screenshotCount - Current number of screenshots
- *
- * @example
- * <Toolbar onAddScreenshot={addScreenshot} screenshotCount={3} />
- */
-export const Toolbar = ({ onAddScreenshot, screenshotCount }: ToolbarProps) => (
-  <div className="h-14 border-b border-white/10 bg-[#141414] flex items-center px-4 gap-4">
-    <div className="flex items-center gap-2">
-      <button
-        onClick={onAddScreenshot}
-        className="flex items-center gap-1.5 bg-white hover:bg-neutral-200 text-black text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
-      >
-        <Plus className="w-4 h-4" />
-        Add Screenshot
-      </button>
-    </div>
+export const Toolbar = ({
+  onAddScreenshot,
+  onAddText,
+  onDuplicateScreenshot,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  onMoveLeft,
+  onMoveRight,
+  canMoveLeft,
+  canMoveRight,
+  screenshotCount,
+}: ToolbarProps) => (
+  <div className="h-14 border-b border-white/10 bg-[#141414] flex items-center px-4 gap-3">
+    <button
+      onClick={onAddScreenshot}
+      className="flex items-center gap-1.5 bg-white hover:bg-neutral-200 text-black text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+    >
+      <Plus className="w-4 h-4" />
+      Screen
+    </button>
+    <button
+      onClick={onAddText}
+      className="flex items-center gap-1.5 bg-[#2a2a2a] hover:bg-[#333] text-gray-200 text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+      title="Add text on the active screen"
+    >
+      <Type className="w-4 h-4" />
+      Text
+    </button>
+    <button
+      onClick={onDuplicateScreenshot}
+      className="flex items-center gap-1.5 bg-[#2a2a2a] hover:bg-[#333] text-gray-200 text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+    >
+      <Copy className="w-4 h-4" />
+      Duplicate
+    </button>
+
+    <div className="w-px h-6 bg-white/10" />
+
+    <button
+      onClick={onUndo}
+      disabled={!canUndo}
+      title="Undo (Ctrl+Z)"
+      className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-gray-300 hover:bg-[#2a2a2a] disabled:opacity-30 disabled:pointer-events-none"
+    >
+      <Undo2 className="w-4 h-4" />
+      <span className="text-xs hidden sm:inline">Undo</span>
+    </button>
+    <button
+      onClick={onRedo}
+      disabled={!canRedo}
+      title="Redo (Ctrl+Y)"
+      className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-gray-300 hover:bg-[#2a2a2a] disabled:opacity-30 disabled:pointer-events-none"
+    >
+      <Redo2 className="w-4 h-4" />
+      <span className="text-xs hidden sm:inline">Redo</span>
+    </button>
+
+    <div className="w-px h-6 bg-white/10" />
+
+    <button
+      onClick={onMoveLeft}
+      disabled={!canMoveLeft}
+      title="Move screenshot left"
+      className="p-1.5 rounded-md text-gray-300 hover:bg-[#2a2a2a] disabled:opacity-30 disabled:pointer-events-none"
+    >
+      <ChevronLeft className="w-4 h-4" />
+    </button>
+    <button
+      onClick={onMoveRight}
+      disabled={!canMoveRight}
+      title="Move screenshot right"
+      className="p-1.5 rounded-md text-gray-300 hover:bg-[#2a2a2a] disabled:opacity-30 disabled:pointer-events-none"
+    >
+      <ChevronRight className="w-4 h-4" />
+    </button>
+
     <div className="flex-1" />
     <span className="text-xs text-gray-400">
       {screenshotCount} screenshot{screenshotCount !== 1 ? "s" : ""}

@@ -15,9 +15,10 @@ import { SELECTION_COLORS } from "./constants";
  */
 export const getDropShadowFilter = (
   shadow: ShadowConfig | undefined,
+  scale: number = 1,
 ): string | undefined => {
   if (!shadow?.enabled) return undefined;
-  return `drop-shadow(${shadow.offsetX}px ${shadow.offsetY}px ${shadow.blur}px ${shadow.color})`;
+  return `drop-shadow(${shadow.offsetX * scale}px ${shadow.offsetY * scale}px ${shadow.blur * scale}px ${shadow.color})`;
 };
 
 /**

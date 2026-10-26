@@ -2,13 +2,6 @@
  * RightSidebar Component
  *
  * Main sidebar containing position presets, layout, content, appearance, and overlay image controls.
- *
- * Features:
- * - Position presets for quick device positioning
- * - Device layout controls (size, position, rotation, shadow)
- * - Text content editors (headline, subheadline)
- * - Appearance settings (background, colors, fonts)
- * - Overlay image management
  */
 
 import { useEditor } from "../../context/EditorContext";
@@ -21,16 +14,9 @@ import { ContentSection } from "./ContentSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { OverlayImagesSection } from "./OverlayImagesSection";
 import { IconLibrarySection } from "./IconLibrarySection";
+import { SidebarSection } from "./SidebarSection";
 import { STYLES } from "./constants";
 
-/**
- * RightSidebar - Main properties sidebar
- *
- * Provides all editing controls for the active screenshot.
- *
- * @example
- * <RightSidebar />
- */
 export const RightSidebar = () => {
   const {
     activeScreenshot,
@@ -74,39 +60,89 @@ export const RightSidebar = () => {
           onSendBackward={sendDeviceBackward}
         />
 
-        <ScreenshotImageSection
-          device={activeDevice}
-          fileInputRef={fileInputRef}
-          onFileUpload={handleFileUpload}
-        />
+        {activeDevice ? (
+          <>
+            <ScreenshotImageSection
+              device={activeDevice}
+              fileInputRef={fileInputRef}
+              onFileUpload={handleFileUpload}
+              onUpdateDevice={(updates) =>
+                updateActiveScreenshot({
+                  devices: activeScreenshot.devices.map((device) =>
+                    device.id === activeDevice.id
+                      ? { ...device, ...updates }
+                      : device,
+                  ),
+                })
+              }
+            />
 
-        <PositionPresets
-          device={activeDevice}
-          onUpdateDevice={(updates) =>
-            updateActiveScreenshot({
-              devices: activeScreenshot.devices.map((device) =>
-                device.id === activeDevice.id ? { ...device, ...updates } : device,
-              ),
-            })
-          }
-        />
+            <PositionPresets
+              device={activeDevice}
+              onUpdateDevice={(updates) =>
+                updateActiveScreenshot({
+                  devices: activeScreenshot.devices.map((device) =>
+                    device.id === activeDevice.id
+                      ? { ...device, ...updates }
+                      : device,
+                  ),
+                })
+              }
+            />
 
-        <LayoutSection
-          device={activeDevice}
-          screenshot={activeScreenshot}
-          headlineFontSize={headlineFontSize}
-          subheadlineFontSize={subheadlineFontSize}
-          onUpdateDevice={(updates) =>
-            updateActiveScreenshot({
-              devices: activeScreenshot.devices.map((device) =>
-                device.id === activeDevice.id ? { ...device, ...updates } : device,
-              ),
-            })
-          }
-          onUpdateScreenshot={updateActiveScreenshot}
-          onHeadlineSizeChange={setHeadlineFontSize}
-          onSubheadlineSizeChange={setSubheadlineFontSize}
-        />
+            <LayoutSection
+              device={activeDevice}
+              screenshot={activeScreenshot}
+              headlineFontSize={headlineFontSize}
+              subheadlineFontSize={subheadlineFontSize}
+              onUpdateDevice={(updates) =>
+                updateActiveScreenshot({
+                  devices: activeScreenshot.devices.map((device) =>
+                    device.id === activeDevice.id
+                      ? { ...device, ...updates }
+                      : device,
+                  ),
+                })
+              }
+              onUpdateScreenshot={updateActiveScreenshot}
+              onHeadlineSizeChange={setHeadlineFontSize}
+              onSubheadlineSizeChange={setSubheadlineFontSize}
+            />
+          </>
+        ) : (
+          <SidebarSection title="Device">
+            <p className="text-xs text-gray-400 mb-2">
+              No device on this screenshot — free space for text & overlays.
+            </p>
+            <button onClick={addDevice} className={STYLES.uploadButton}>
+              + Add Device
+            </button>
+            <div className="mt-3 space-y-2">
+              <label className="block text-xs text-gray-400">
+                Headline size: {headlineFontSize}px
+              </label>
+              <input
+                type="range"
+                min={24}
+                max={160}
+                value={headlineFontSize}
+                onChange={(e) => setHeadlineFontSize(Number(e.target.value))}
+                className="w-full"
+              />
+              <label className="block text-xs text-gray-400">
+                Subheadline size: {subheadlineFontSize}px
+              </label>
+              <input
+                type="range"
+                min={16}
+                max={96}
+                value={subheadlineFontSize}
+                onChange={(e) => setSubheadlineFontSize(Number(e.target.value))}
+                className="w-full"
+              />
+            </div>
+          </SidebarSection>
+        )}
 
         <ContentSection
           screenshot={activeScreenshot}

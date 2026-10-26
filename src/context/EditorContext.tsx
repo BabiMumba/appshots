@@ -17,8 +17,14 @@ import type {
   ShadowConfig,
   Project,
   SelectedElement,
+  TextAlign,
 } from "../types";
-import { devices, exportSizes, gradientPresets } from "../constants";
+import {
+  devices,
+  exportSizes,
+  DEFAULT_EXPORT_SIZE_ID,
+  resolveExportSizeId,
+} from "../constants";
 import { exportScreenshots } from "../lib/export-utils";
 import {
   cloneDeviceInstance,
@@ -27,11 +33,34 @@ import {
   getDeviceColorById,
   getDeviceSpecById,
 } from "../lib/device-instances";
+import { getBackgroundCss } from "../lib/gradient-style";
+import {
+  buildDefaultLayerOrder,
+  ensureLayerOrder,
+  layerKeyFor,
+  moveLayerKey,
+} from "../lib/layer-order";
+import {
+  createDefaultTexts,
+  createTextOverlay,
+  resolveTexts,
+  syncLegacyTextFields,
+} from "../lib/text-overlays";
+import type { TextOverlay } from "../types";
 import {
   loadPersistedState,
   useEditorPersistence,
   clearPersistedState,
 } from "../lib/useLocalStorage";
+
+const withSyncedTexts = (
+  texts: TextOverlay[],
+  extra: Partial<Screenshot> = {},
+) => ({
+  texts,
+  ...syncLegacyTextFields(texts),
+  ...extra,
+});
 
 function generateId() {
   return Math.random().toString(36).substring(2, 9);
@@ -58,6 +87,8 @@ interface EditorContextType {
   setSelectedColorId: (id: string) => void;
   exportSizeId: string;
   setExportSizeId: (id: string) => void;
+  exportSizeIds: string[];
+  toggleExportSizeId: (id: string) => void;
   screenshots: Screenshot[];
   setScreenshots: (screenshots: Screenshot[]) => void;
   activeScreenshotId: string;
@@ -71,6 +102,29 @@ interface EditorContextType {
   setSubheadlineFontSize: (size: number) => void;
   previewDimensions: { width: number; height: number };
   setPreviewDimensions: (dim: { width: number; height: number }) => void;
+  contentFocusRequest: string | null;
+  clearContentFocusRequest: () => void;
+  /** Inline canvas text editing target */
+  inlineEditing: {
+    screenshotId: string;
+    textId: string;
+  } | null;
+  startInlineEditing: (screenshotId: string, textId: string) => void;
+  stopInlineEditing: () => void;
+  addText: () => void;
+  updateText: (
+    textId: string,
+    updates: Partial<TextOverlay>,
+    screenshotId?: string,
+  ) => void;
+  removeText: (textId: string) => void;
+  duplicateText: (textId: string) => void;
+  /** Ignore canvas deselect briefly after selecting an element (layout shift guard) */
+  suppressDeselectUntil: React.MutableRefObject<number>;
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
 
   // Refs
   previewRef: React.RefObject<HTMLDivElement | null>;
@@ -82,21 +136,44 @@ interface EditorContextType {
   selectedDevice: DeviceSpec;
   selectedColor: DeviceColor;
   activeScreenshot: Screenshot;
-  activeDevice: DeviceInstance;
+  activeDevice: DeviceInstance | null;
   exportSize: ExportSize;
 
   // Actions
   updateActiveScreenshot: (updates: Partial<Screenshot>) => void;
   addScreenshot: () => void;
+  duplicateScreenshot: (id?: string) => void;
   removeScreenshot: (id: string) => void;
+  reorderScreenshots: (fromIndex: number, toIndex: number) => void;
+  moveScreenshot: (id: string, direction: -1 | 1) => void;
   handleElementMouseDown: (
     e: React.MouseEvent,
-    type: "headline" | "subheadline" | "image" | "device",
+    type: "text" | "image" | "device",
     screenshotId: string,
     id?: string,
   ) => void;
   handleElementMouseMove: (e: MouseEvent) => void;
   handleElementMouseUp: () => void;
+  handleResizeStart: (
+    e: React.MouseEvent,
+    type: "text" | "image" | "device",
+    screenshotId: string,
+    id: string | undefined,
+    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
+  ) => void;
+  handleRotateStart: (
+    e: React.MouseEvent,
+    type: "image" | "device",
+    screenshotId: string,
+    id: string,
+  ) => void;
+  requestContentFocus: (textId: string) => void;
+  updateScreenshotById: (
+    screenshotId: string,
+    updates: Partial<Screenshot>,
+    recordHistory?: boolean,
+  ) => void;
+  updateTextAlign: (textId: string, align: TextAlign) => void;
   addOverlayImage: (file: File) => void;
   addIcon: (src: string, name: string) => void;
   removeOverlayImage: (imageId: string) => void;
@@ -112,10 +189,17 @@ interface EditorContextType {
   removeDevice: (deviceId: string) => void;
   bringDeviceForward: (deviceId: string) => void;
   sendDeviceBackward: (deviceId: string) => void;
+  bringDeviceToFront: (deviceId: string) => void;
+  sendDeviceToBack: (deviceId: string) => void;
   bringImageForward: (imageId: string) => void;
   sendImageBackward: (imageId: string) => void;
   bringImageToFront: (imageId: string) => void;
   sendImageToBack: (imageId: string) => void;
+  moveElementLayer: (
+    type: SelectedElement["type"],
+    id: string | undefined,
+    action: "forward" | "backward" | "front" | "back",
+  ) => void;
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
   handleExport: () => void;
   getBackgroundStyle: (screenshot: Screenshot) => string;
@@ -144,26 +228,24 @@ const createDefaultScreenshot = (
     deviceId: defaultDeviceId,
     colorId: defaultColorId,
   });
+  const texts = createDefaultTexts();
 
   return {
     id: generateId(),
-    headline: "Showcase Your App",
-    subheadline:
-      "Create stunning App Store screenshots in minutes. Customizable templates, devices, and backgrounds.",
+    texts,
+    ...syncLegacyTextFields(texts),
     backgroundColor: "#8b5cf6",
     backgroundMode: "solid",
     gradientPresetId: null,
-    textColor: "#ffffff",
-    headlineX: 50,
-    headlineY: 10,
-    headlineWidth: 80,
-    subheadlineX: 50,
-    subheadlineY: 18,
-    subheadlineWidth: 80,
-    fontFamily: "Inter",
+    customGradient: null,
     overlayImages: [],
     devices: [defaultDevice],
     activeDeviceId: defaultDevice.id,
+    layerOrder: buildDefaultLayerOrder({
+      devices: [defaultDevice],
+      overlayImages: [],
+      texts,
+    }),
   };
 };
 
@@ -171,6 +253,8 @@ const normalizeScreenshot = (
   screenshot: Partial<Screenshot> & LegacyScreenshotFields,
   fallbackDeviceId: string,
   fallbackColorId: string,
+  fallbackHeadlineFontSize: number = 72,
+  fallbackSubheadlineFontSize: number = 42,
 ): Screenshot => {
   const {
     screenshotSrc: _legacyScreenshotSrc,
@@ -190,12 +274,33 @@ const normalizeScreenshot = (
     fallbackColorId,
   );
 
-  return {
+  const overlayImages = screenshot.overlayImages ?? [];
+  const texts = resolveTexts({
+    ...screenshot,
+    headlineFontSize:
+      typeof screenshot.headlineFontSize === "number"
+        ? screenshot.headlineFontSize
+        : fallbackHeadlineFontSize,
+    subheadlineFontSize:
+      typeof screenshot.subheadlineFontSize === "number"
+        ? screenshot.subheadlineFontSize
+        : fallbackSubheadlineFontSize,
+  });
+
+  const partial: Screenshot = {
     ...baseScreenshot,
     ...rest,
-    overlayImages: screenshot.overlayImages ?? [],
+    ...syncLegacyTextFields(texts),
+    texts,
+    customGradient: screenshot.customGradient ?? null,
+    overlayImages,
     devices: deviceInstances,
     activeDeviceId,
+    layerOrder: [],
+  };
+  return {
+    ...partial,
+    layerOrder: ensureLayerOrder(partial),
   };
 };
 
@@ -203,14 +308,31 @@ const normalizeProject = (project: Project): Project => {
   const fallbackDeviceId = project.selectedDeviceId ?? devices[0].id;
   const fallbackColorId =
     project.selectedColorId ?? getDeviceSpecById(fallbackDeviceId).colors[0].id;
+  const legacyHeadline = project.headlineFontSize ?? 72;
+  const legacySub = project.subheadlineFontSize ?? 42;
   const normalizedScreenshots = project.screenshots.map((screenshot) =>
-    normalizeScreenshot(screenshot, fallbackDeviceId, fallbackColorId),
+    normalizeScreenshot(
+      screenshot,
+      fallbackDeviceId,
+      fallbackColorId,
+      legacyHeadline,
+      legacySub,
+    ),
+  );
+  const exportSizeId = resolveExportSizeId(project.exportSizeId);
+  const rawIds = Array.isArray(project.exportSizeIds)
+    ? project.exportSizeIds
+    : [exportSizeId];
+  const exportSizeIds = Array.from(
+    new Set(rawIds.map(resolveExportSizeId).concat(exportSizeId)),
   );
 
   return {
     ...project,
     selectedDeviceId: fallbackDeviceId,
     selectedColorId: fallbackColorId,
+    exportSizeId,
+    exportSizeIds,
     screenshots: normalizedScreenshots,
     activeScreenshotId:
       normalizedScreenshots.find((s) => s.id === project.activeScreenshotId)?.id ??
@@ -231,10 +353,9 @@ const createDefaultProject = (name: string = "My Project"): Project => {
     screenshots: [defaultScreenshot],
     selectedDeviceId: defaultDeviceId,
     selectedColorId: defaultColorId,
-    exportSizeId: exportSizes[0].id,
+    exportSizeId: DEFAULT_EXPORT_SIZE_ID,
+    exportSizeIds: [DEFAULT_EXPORT_SIZE_ID],
     activeScreenshotId: defaultScreenshot.id,
-    headlineFontSize: 72,
-    subheadlineFontSize: 42,
   };
 };
 
@@ -279,21 +400,41 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     activeProject.selectedColorId,
   );
   const [exportSizeId, setExportSizeIdState] = useState(
-    activeProject.exportSizeId,
+    resolveExportSizeId(activeProject.exportSizeId),
+  );
+  const [exportSizeIds, setExportSizeIdsState] = useState<string[]>(
+    activeProject.exportSizeIds?.length
+      ? activeProject.exportSizeIds.map(resolveExportSizeId)
+      : [resolveExportSizeId(activeProject.exportSizeId)],
   );
   const [screenshots, setScreenshotsState] = useState<Screenshot[]>(
     activeProject.screenshots,
   );
+  const [contentFocusRequest, setContentFocusRequest] = useState<string | null>(
+    null,
+  );
+  const [inlineEditing, setInlineEditing] = useState<{
+    screenshotId: string;
+    textId: string;
+  } | null>(null);
+  const suppressDeselectUntil = useRef(0);
+  const dragHistoryPushed = useRef(false);
+  const historyPast = useRef<{ screenshots: Screenshot[] }[]>([]);
+  const historyFuture = useRef<{ screenshots: Screenshot[] }[]>([]);
+  const [historyTick, setHistoryTick] = useState(0);
+  const skipHistory = useRef(false);
+  const interactionMode = useRef<"none" | "drag" | "resize" | "rotate">("none");
+  const resizeMeta = useRef<{
+    handle: "e" | "w" | "se" | "sw" | "ne" | "nw";
+    startWidth: number;
+    startHeight: number;
+    startScale: number;
+    startX: number;
+    startRotation: number;
+  } | null>(null);
   const [activeScreenshotId, setActiveScreenshotIdState] = useState(
     activeProject.activeScreenshotId,
   );
-  const [headlineFontSize, setHeadlineFontSizeState] = useState(
-    activeProject.headlineFontSize,
-  );
-  const [subheadlineFontSize, setSubheadlineFontSizeState] = useState(
-    activeProject.subheadlineFontSize,
-  );
-
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(
     null,
   );
@@ -316,6 +457,20 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
+  const pushHistory = useCallback(
+    (_nextScreenshots?: Screenshot[]) => {
+      if (skipHistory.current) return;
+      historyPast.current.push({
+        screenshots: structuredClone(screenshots),
+      });
+      if (historyPast.current.length > 50) historyPast.current.shift();
+      historyFuture.current = [];
+      setHistoryTick((t) => t + 1);
+      void _nextScreenshots;
+    },
+    [screenshots],
+  );
+
   // Sync project state when local state changes
   const updateProjectState = useCallback(() => {
     setProjects((prev) =>
@@ -327,9 +482,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
               selectedDeviceId,
               selectedColorId,
               exportSizeId,
+              exportSizeIds,
               activeScreenshotId,
-              headlineFontSize,
-              subheadlineFontSize,
               updatedAt: Date.now(),
             }
           : p,
@@ -341,9 +495,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     selectedDeviceId,
     selectedColorId,
     exportSizeId,
+    exportSizeIds,
     activeScreenshotId,
-    headlineFontSize,
-    subheadlineFontSize,
   ]);
 
   // Update project whenever state changes
@@ -395,20 +548,117 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     );
   };
   const setExportSizeId = (id: string) => {
-    setExportSizeIdState(id);
+    const resolved = resolveExportSizeId(id);
+    setExportSizeIdState(resolved);
+    setExportSizeIdsState((prev) =>
+      prev.includes(resolved) ? prev : [...prev, resolved],
+    );
+  };
+  const toggleExportSizeId = (id: string) => {
+    const resolved = resolveExportSizeId(id);
+    setExportSizeIdsState((prev) => {
+      if (prev.includes(resolved)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((x) => x !== resolved);
+      }
+      return [...prev, resolved];
+    });
   };
   const setScreenshots = (newScreenshots: Screenshot[]) => {
+    pushHistory(newScreenshots);
     setScreenshotsState(newScreenshots);
   };
   const setActiveScreenshotId = (id: string) => {
     setActiveScreenshotIdState(id);
   };
+  const patchTextsOnActive = (
+    mapFn: (texts: TextOverlay[]) => TextOverlay[],
+  ) => {
+    pushHistory();
+    setScreenshotsState((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeScreenshotId) return s;
+        const texts = mapFn(s.texts ?? []);
+        return {
+          ...s,
+          ...withSyncedTexts(texts),
+          layerOrder: ensureLayerOrder({ ...s, texts }),
+        };
+      }),
+    );
+  };
+
   const setHeadlineFontSize = (size: number) => {
-    setHeadlineFontSizeState(size);
+    patchTextsOnActive((texts) => {
+      const targetId =
+        selectedElement?.type === "text" && selectedElement.id
+          ? selectedElement.id
+          : texts[0]?.id;
+      return texts.map((t) =>
+        t.id === targetId ? { ...t, fontSize: size } : t,
+      );
+    });
   };
   const setSubheadlineFontSize = (size: number) => {
-    setSubheadlineFontSizeState(size);
+    patchTextsOnActive((texts) => {
+      const targetId =
+        selectedElement?.type === "text" && selectedElement.id
+          ? selectedElement.id
+          : (texts[1]?.id ?? texts[0]?.id);
+      return texts.map((t) =>
+        t.id === targetId ? { ...t, fontSize: size } : t,
+      );
+    });
   };
+
+  const undo = useCallback(() => {
+    const prev = historyPast.current.pop();
+    if (!prev) return;
+    historyFuture.current.push({
+      screenshots: structuredClone(screenshots),
+    });
+    skipHistory.current = true;
+    setScreenshotsState(prev.screenshots);
+    skipHistory.current = false;
+    setHistoryTick((t) => t + 1);
+  }, [screenshots]);
+
+  const redo = useCallback(() => {
+    const next = historyFuture.current.pop();
+    if (!next) return;
+    historyPast.current.push({
+      screenshots: structuredClone(screenshots),
+    });
+    skipHistory.current = true;
+    setScreenshotsState(next.screenshots);
+    skipHistory.current = false;
+    setHistoryTick((t) => t + 1);
+  }, [screenshots]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undo, redo]);
 
   // Project management functions
   const createProject = (name: string) => {
@@ -447,12 +697,18 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     setActiveProjectId(id);
     setSelectedDeviceIdState(project.selectedDeviceId);
     setSelectedColorIdState(project.selectedColorId);
-    setExportSizeIdState(project.exportSizeId);
+    setExportSizeIdState(resolveExportSizeId(project.exportSizeId));
+    setExportSizeIdsState(
+      project.exportSizeIds?.length
+        ? project.exportSizeIds.map(resolveExportSizeId)
+        : [resolveExportSizeId(project.exportSizeId)],
+    );
     setScreenshotsState(project.screenshots);
     setActiveScreenshotIdState(project.activeScreenshotId);
-    setHeadlineFontSizeState(project.headlineFontSize);
-    setSubheadlineFontSizeState(project.subheadlineFontSize);
     setSelectedElement(null);
+    historyPast.current = [];
+    historyFuture.current = [];
+    setHistoryTick((t) => t + 1);
   };
 
   const selectedDevice =
@@ -464,15 +720,27 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   const activeDevice =
     activeScreenshot.devices.find(
       (device) => device.id === activeScreenshot.activeDeviceId,
-    ) || activeScreenshot.devices[0];
+    ) ||
+    activeScreenshot.devices[0] ||
+    null;
   const exportSize =
     exportSizes.find((s) => s.id === exportSizeId) || exportSizes[0];
+  const headlineFontSize = activeScreenshot.headlineFontSize ?? 72;
+  const subheadlineFontSize = activeScreenshot.subheadlineFontSize ?? 42;
 
   const updateScreenshotById = useCallback(
-    (screenshotId: string, updates: Partial<Screenshot>) => {
-      setScreenshotsState((prev) =>
-        prev.map((s) => (s.id === screenshotId ? { ...s, ...updates } : s)),
-      );
+    (screenshotId: string, updates: Partial<Screenshot>, recordHistory = true) => {
+      setScreenshotsState((prev) => {
+        if (recordHistory && !skipHistory.current) {
+          historyPast.current.push({
+            screenshots: structuredClone(prev),
+          });
+          if (historyPast.current.length > 50) historyPast.current.shift();
+          historyFuture.current = [];
+          setHistoryTick((t) => t + 1);
+        }
+        return prev.map((s) => (s.id === screenshotId ? { ...s, ...updates } : s));
+      });
     },
     [],
   );
@@ -504,40 +772,125 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   ]);
 
   const addScreenshot = () => {
-    const newScreenshot: Screenshot = {
-      id: generateId(),
+    const newDevices = activeScreenshot.devices.map((device) =>
+      cloneDeviceInstance(device, { id: generateId() }),
+    );
+    const texts = createDefaultTexts({
       headline: "New Screenshot",
       subheadline: "Add your description here",
+      color: activeScreenshot.textColor,
+      fontFamily: activeScreenshot.fontFamily,
+      headlineFontSize: activeScreenshot.headlineFontSize ?? 72,
+      subheadlineFontSize: activeScreenshot.subheadlineFontSize ?? 42,
+    });
+    const legacy = syncLegacyTextFields(texts);
+    const newScreenshot: Screenshot = {
+      id: generateId(),
+      texts,
+      ...legacy,
       backgroundColor: activeScreenshot.backgroundColor,
       backgroundMode: activeScreenshot.backgroundMode,
       gradientPresetId: activeScreenshot.gradientPresetId,
-      textColor: activeScreenshot.textColor,
-      headlineX: 50,
-      headlineY: 10,
-      headlineWidth: 80,
-      subheadlineX: 50,
-      subheadlineY: 18,
-      subheadlineWidth: 80,
-      fontFamily: activeScreenshot.fontFamily,
+      customGradient: activeScreenshot.customGradient
+        ? { ...activeScreenshot.customGradient }
+        : null,
       overlayImages: [],
-      devices: activeScreenshot.devices.map((device) =>
-        cloneDeviceInstance(device, { id: generateId() }),
-      ),
-      activeDeviceId: activeScreenshot.devices[0]?.id ?? generateId(),
+      devices: newDevices,
+      activeDeviceId: newDevices[0]?.id ?? "",
+      layerOrder: buildDefaultLayerOrder({
+        devices: newDevices,
+        overlayImages: [],
+        texts,
+      }),
     };
-    newScreenshot.activeDeviceId = newScreenshot.devices[0].id;
     setScreenshots([...screenshots, newScreenshot]);
     setActiveScreenshotId(newScreenshot.id);
   };
 
+  const duplicateScreenshot = (id?: string) => {
+    const sourceId = id ?? activeScreenshotId;
+    const source = screenshots.find((s) => s.id === sourceId);
+    if (!source) return;
+
+    const deviceIdMap = new Map<string, string>();
+    const devicesClone = source.devices.map((device) => {
+      const newId = generateId();
+      deviceIdMap.set(device.id, newId);
+      return cloneDeviceInstance(device, { id: newId });
+    });
+
+    const imageIdMap = new Map<string, string>();
+    const overlaysClone = source.overlayImages.map((img) => {
+      const newId = generateId();
+      imageIdMap.set(img.id, newId);
+      return { ...structuredClone(img), id: newId };
+    });
+    const remapKey = (key: string) => {
+      if (key.startsWith("device:")) {
+        const mapped = deviceIdMap.get(key.slice(7));
+        return mapped ? `device:${mapped}` : key;
+      }
+      if (key.startsWith("image:")) {
+        const mapped = imageIdMap.get(key.slice(6));
+        return mapped ? `image:${mapped}` : key;
+      }
+      return key;
+    };
+    const clone: Screenshot = {
+      ...structuredClone(source),
+      id: generateId(),
+      devices: devicesClone,
+      activeDeviceId:
+        deviceIdMap.get(source.activeDeviceId) ?? devicesClone[0]?.id ?? "",
+      overlayImages: overlaysClone,
+      layerOrder: ensureLayerOrder({
+        ...source,
+        devices: devicesClone,
+        overlayImages: overlaysClone,
+        layerOrder: (source.layerOrder ?? []).map(remapKey),
+      }),
+    };
+
+    const index = screenshots.findIndex((s) => s.id === sourceId);
+    const next = [...screenshots];
+    next.splice(index + 1, 0, clone);
+    setScreenshots(next);
+    setActiveScreenshotId(clone.id);
+  };
+
+  const reorderScreenshots = (fromIndex: number, toIndex: number) => {
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= screenshots.length ||
+      toIndex >= screenshots.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+    const next = [...screenshots];
+    const [item] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, item);
+    setScreenshots(next);
+  };
+
+  const moveScreenshot = (id: string, direction: -1 | 1) => {
+    const index = screenshots.findIndex((s) => s.id === id);
+    if (index < 0) return;
+    reorderScreenshots(index, index + direction);
+  };
+
   const handleElementMouseDown = (
     e: React.MouseEvent,
-    type: "headline" | "subheadline" | "image" | "device",
+    type: "text" | "image" | "device",
     screenshotId: string,
     id?: string,
   ) => {
-    e.preventDefault();
     e.stopPropagation();
+    // Keep default for text so double-click → edit still works.
+    if (type !== "text") {
+      e.preventDefault();
+    }
 
     const screenshotElement = (e.currentTarget as HTMLElement).closest(
       "[data-screenshot-card='true']",
@@ -554,6 +907,10 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       screenshots.find((screenshot) => screenshot.id === screenshotId) ??
       activeScreenshot;
 
+    // Select immediately; only start a real drag after a small move threshold.
+    suppressDeselectUntil.current = Date.now() + 400;
+    interactionMode.current = "none";
+    dragHistoryPushed.current = false;
     setIsDragging(true);
     setSelectedElement({ type, id, screenshotId });
     if (activeScreenshotId !== screenshotId) {
@@ -567,16 +924,11 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       if (device) {
         dragStartElementPos.current = { x: device.x, y: device.y };
       }
-    } else if (type === "headline") {
-      dragStartElementPos.current = {
-        x: targetScreenshot.headlineX,
-        y: targetScreenshot.headlineY,
-      };
-    } else if (type === "subheadline") {
-      dragStartElementPos.current = {
-        x: targetScreenshot.subheadlineX,
-        y: targetScreenshot.subheadlineY,
-      };
+    } else if (type === "text" && id) {
+      const text = (targetScreenshot.texts ?? []).find((t) => t.id === id);
+      if (text) {
+        dragStartElementPos.current = { x: text.x, y: text.y };
+      }
     } else if (type === "image" && id) {
       const image = targetScreenshot.overlayImages.find((img) => img.id === id);
       if (image) {
@@ -590,16 +942,19 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
 
     const { x: newX, y: newY } = pendingUpdate.current;
 
-    if (selectedElement.type === "headline") {
-      updateScreenshotById(selectedElement.screenshotId, {
-        headlineX: newX,
-        headlineY: newY,
-      });
-    } else if (selectedElement.type === "subheadline") {
-      updateScreenshotById(selectedElement.screenshotId, {
-        subheadlineX: newX,
-        subheadlineY: newY,
-      });
+    if (selectedElement.type === "text" && selectedElement.id) {
+      const targetScreenshot = screenshots.find(
+        (screenshot) => screenshot.id === selectedElement.screenshotId,
+      );
+      if (!targetScreenshot) return;
+      const texts = (targetScreenshot.texts ?? []).map((t) =>
+        t.id === selectedElement.id ? { ...t, x: newX, y: newY } : t,
+      );
+      updateScreenshotById(
+        selectedElement.screenshotId,
+        withSyncedTexts(texts),
+        false,
+      );
     } else if (selectedElement.type === "image" && selectedElement.id) {
       const targetScreenshot = screenshots.find(
         (screenshot) => screenshot.id === selectedElement.screenshotId,
@@ -609,9 +964,11 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       const updatedImages = targetScreenshot.overlayImages.map((img) =>
         img.id === selectedElement.id ? { ...img, x: newX, y: newY } : img,
       );
-      updateScreenshotById(selectedElement.screenshotId, {
-        overlayImages: updatedImages,
-      });
+      updateScreenshotById(
+        selectedElement.screenshotId,
+        { overlayImages: updatedImages },
+        false,
+      );
     } else if (selectedElement.type === "device" && selectedElement.id) {
       const targetScreenshot = screenshots.find(
         (screenshot) => screenshot.id === selectedElement.screenshotId,
@@ -621,9 +978,11 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       const updatedDevices = targetScreenshot.devices.map((device) =>
         device.id === selectedElement.id ? { ...device, x: newX, y: newY } : device,
       );
-      updateScreenshotById(selectedElement.screenshotId, {
-        devices: updatedDevices,
-      });
+      updateScreenshotById(
+        selectedElement.screenshotId,
+        { devices: updatedDevices },
+        false,
+      );
     }
 
     pendingUpdate.current = null;
@@ -637,11 +996,134 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       const { width, height } = dragContainerSize.current;
       if (width === 0 || height === 0) return;
 
+      // Click vs drag: ignore tiny movements so a click only selects.
+      if (interactionMode.current === "none") {
+        const dist = Math.hypot(
+          e.clientX - dragStartPos.current.x,
+          e.clientY - dragStartPos.current.y,
+        );
+        if (dist < 5) return;
+        interactionMode.current = "drag";
+        if (!dragHistoryPushed.current) {
+          pushHistory();
+          dragHistoryPushed.current = true;
+        }
+      }
+
+      if (interactionMode.current === "resize" && resizeMeta.current) {
+        const meta = resizeMeta.current;
+        const deltaX = ((e.clientX - dragStartPos.current.x) / width) * 100;
+        const deltaY = ((e.clientY - dragStartPos.current.y) / height) * 100;
+        // Canva-like: drag handle inward (toward center) = shrink
+        const isWest = meta.handle === "w" || meta.handle === "nw" || meta.handle === "sw";
+        const isNorth = meta.handle === "nw" || meta.handle === "ne";
+        const isCorner =
+          meta.handle === "nw" ||
+          meta.handle === "ne" ||
+          meta.handle === "sw" ||
+          meta.handle === "se";
+        const signedX = (isWest ? -1 : 1) * deltaX;
+        const signedY = (isNorth ? -1 : 1) * deltaY;
+        const growDelta = isCorner ? (signedX + signedY) / 2 : signedX;
+
+        const target = screenshots.find(
+          (s) => s.id === selectedElement.screenshotId,
+        );
+        if (!target) return;
+
+        if (selectedElement.type === "text" && selectedElement.id) {
+          const nextWidth = Math.min(
+            100,
+            Math.max(20, meta.startWidth + growDelta),
+          );
+          const texts = (target.texts ?? []).map((t) =>
+            t.id === selectedElement.id ? { ...t, width: nextWidth } : t,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            withSyncedTexts(texts),
+            false,
+          );
+        } else if (selectedElement.type === "image" && selectedElement.id) {
+          const image = target.overlayImages.find(
+            (img) => img.id === selectedElement.id,
+          );
+          if (!image) return;
+          const aspect = image.width / image.height || 1;
+          const nextWidth = Math.min(
+            90,
+            Math.max(5, meta.startWidth + growDelta),
+          );
+          const updatedImages = target.overlayImages.map((img) =>
+            img.id === selectedElement.id
+              ? { ...img, width: nextWidth, height: nextWidth / aspect }
+              : img,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { overlayImages: updatedImages },
+            false,
+          );
+        } else if (selectedElement.type === "device" && selectedElement.id) {
+          const nextScale = Math.min(
+            120,
+            Math.max(30, meta.startScale + growDelta),
+          );
+          const updatedDevices = target.devices.map((device) =>
+            device.id === selectedElement.id
+              ? { ...device, scale: nextScale }
+              : device,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { devices: updatedDevices },
+            false,
+          );
+        }
+        return;
+      }
+
+      if (interactionMode.current === "rotate" && resizeMeta.current) {
+        const target = screenshots.find(
+          (s) => s.id === selectedElement.screenshotId,
+        );
+        if (!target || !selectedElement.id) return;
+        const deltaX = e.clientX - dragStartPos.current.x;
+        const nextRotation = resizeMeta.current.startRotation + deltaX * 0.5;
+
+        if (selectedElement.type === "image") {
+          const updatedImages = target.overlayImages.map((img) =>
+            img.id === selectedElement.id
+              ? { ...img, rotation: nextRotation }
+              : img,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { overlayImages: updatedImages },
+            false,
+          );
+        } else if (selectedElement.type === "device") {
+          const updatedDevices = target.devices.map((device) =>
+            device.id === selectedElement.id
+              ? { ...device, rotation: nextRotation }
+              : device,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { devices: updatedDevices },
+            false,
+          );
+        }
+        return;
+      }
+
       const deltaX = ((e.clientX - dragStartPos.current.x) / width) * 100;
       const deltaY = ((e.clientY - dragStartPos.current.y) / height) * 100;
 
       const newX = dragStartElementPos.current.x + deltaX;
       const newY = dragStartElementPos.current.y + deltaY;
+
+      if (interactionMode.current !== "drag") return;
 
       pendingUpdate.current = { x: newX, y: newY };
 
@@ -649,11 +1131,21 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         rafId.current = requestAnimationFrame(applyDragUpdate);
       }
     },
-    [isDragging, selectedElement, applyDragUpdate],
+    [
+      isDragging,
+      selectedElement,
+      applyDragUpdate,
+      screenshots,
+      updateScreenshotById,
+      pushHistory,
+    ],
   );
 
   const handleElementMouseUp = useCallback(() => {
     setIsDragging(false);
+    interactionMode.current = "none";
+    resizeMeta.current = null;
+    dragHistoryPushed.current = false;
     if (rafId.current !== null) {
       cancelAnimationFrame(rafId.current);
       rafId.current = null;
@@ -662,6 +1154,220 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       applyDragUpdate();
     }
   }, [applyDragUpdate]);
+
+  const handleResizeStart = (
+    e: React.MouseEvent,
+    type: "text" | "image" | "device",
+    screenshotId: string,
+    id: string | undefined,
+    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const screenshotElement = (e.currentTarget as HTMLElement).closest(
+      "[data-screenshot-card='true']",
+    );
+    if (screenshotElement instanceof HTMLElement) {
+      const rect = screenshotElement.getBoundingClientRect();
+      dragContainerSize.current = { width: rect.width, height: rect.height };
+    }
+
+    const target =
+      screenshots.find((s) => s.id === screenshotId) ?? activeScreenshot;
+
+    pushHistory(screenshots);
+    interactionMode.current = "resize";
+    setIsDragging(true);
+    setSelectedElement({ type, id, screenshotId });
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
+
+    if (type === "text" && id) {
+      const text = (target.texts ?? []).find((t) => t.id === id);
+      if (!text) return;
+      resizeMeta.current = {
+        handle,
+        startWidth: text.width,
+        startHeight: 0,
+        startScale: 0,
+        startX: text.x,
+        startRotation: 0,
+      };
+    } else if (type === "image" && id) {
+      const image = target.overlayImages.find((img) => img.id === id);
+      if (!image) return;
+      resizeMeta.current = {
+        handle,
+        startWidth: image.width,
+        startHeight: image.height,
+        startScale: 0,
+        startX: image.x,
+        startRotation: image.rotation,
+      };
+    } else if (type === "device" && id) {
+      const device = target.devices.find((d) => d.id === id);
+      if (!device) return;
+      resizeMeta.current = {
+        handle,
+        startWidth: 0,
+        startHeight: 0,
+        startScale: device.scale,
+        startX: device.x,
+        startRotation: device.rotation,
+      };
+    }
+  };
+
+  const handleRotateStart = (
+    e: React.MouseEvent,
+    type: "image" | "device",
+    screenshotId: string,
+    id: string,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const target =
+      screenshots.find((s) => s.id === screenshotId) ?? activeScreenshot;
+
+    pushHistory(screenshots);
+    interactionMode.current = "rotate";
+    setIsDragging(true);
+    setSelectedElement({ type, id, screenshotId });
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
+
+    if (type === "image") {
+      const image = target.overlayImages.find((img) => img.id === id);
+      if (!image) return;
+      resizeMeta.current = {
+        handle: "se",
+        startWidth: image.width,
+        startHeight: image.height,
+        startScale: 0,
+        startX: image.x,
+        startRotation: image.rotation ?? 0,
+      };
+    } else {
+      const device = target.devices.find((d) => d.id === id);
+      if (!device) return;
+      resizeMeta.current = {
+        handle: "se",
+        startWidth: 0,
+        startHeight: 0,
+        startScale: device.scale,
+        startX: device.x,
+        startRotation: device.rotation,
+      };
+    }
+  };
+
+  const requestContentFocus = (textId: string) => {
+    setContentFocusRequest(textId);
+  };
+
+  const clearContentFocusRequest = () => setContentFocusRequest(null);
+
+  const startInlineEditing = (screenshotId: string, textId: string) => {
+    if (activeScreenshotId !== screenshotId) {
+      setActiveScreenshotIdState(screenshotId);
+    }
+    setSelectedElement({ type: "text", screenshotId, id: textId });
+    pushHistory();
+    setInlineEditing({ screenshotId, textId });
+  };
+
+  const stopInlineEditing = () => {
+    setInlineEditing(null);
+  };
+
+  // Leave inline edit when selection moves away
+  useEffect(() => {
+    if (!inlineEditing) return;
+    if (
+      !selectedElement ||
+      selectedElement.screenshotId !== inlineEditing.screenshotId ||
+      selectedElement.type !== "text" ||
+      selectedElement.id !== inlineEditing.textId
+    ) {
+      setInlineEditing(null);
+    }
+  }, [selectedElement, inlineEditing]);
+
+  const updateText = (
+    textId: string,
+    updates: Partial<TextOverlay>,
+    screenshotId: string = activeScreenshotId,
+  ) => {
+    const shot =
+      screenshots.find((s) => s.id === screenshotId) ?? activeScreenshot;
+    const texts = (shot.texts ?? []).map((t) =>
+      t.id === textId ? { ...t, ...updates } : t,
+    );
+    updateScreenshotById(screenshotId, {
+      ...withSyncedTexts(texts),
+      layerOrder: ensureLayerOrder({ ...shot, texts }),
+    });
+  };
+
+  const addText = () => {
+    const offset = (activeScreenshot.texts?.length ?? 0) * 6;
+    const text = createTextOverlay({
+      content: "New text",
+      y: Math.min(80, 12 + offset),
+      fontFamily: activeScreenshot.fontFamily ?? "Inter",
+      color: activeScreenshot.textColor ?? "#ffffff",
+    });
+    const texts = [...(activeScreenshot.texts ?? []), text];
+    updateActiveScreenshot({
+      ...withSyncedTexts(texts),
+      layerOrder: ensureLayerOrder({ ...activeScreenshot, texts }),
+    });
+    setSelectedElement({
+      type: "text",
+      screenshotId: activeScreenshotId,
+      id: text.id,
+    });
+    setInlineEditing({ screenshotId: activeScreenshotId, textId: text.id });
+  };
+
+  const removeText = (textId: string) => {
+    const texts = (activeScreenshot.texts ?? []).filter((t) => t.id !== textId);
+    updateActiveScreenshot({
+      ...withSyncedTexts(texts),
+      layerOrder: ensureLayerOrder({ ...activeScreenshot, texts }),
+    });
+    if (selectedElement?.type === "text" && selectedElement.id === textId) {
+      setSelectedElement(null);
+    }
+    if (inlineEditing?.textId === textId) {
+      setInlineEditing(null);
+    }
+  };
+
+  const duplicateText = (textId: string) => {
+    const source = (activeScreenshot.texts ?? []).find((t) => t.id === textId);
+    if (!source) return;
+    const clone = createTextOverlay({
+      ...source,
+      id: generateId(),
+      x: Math.min(90, source.x + 4),
+      y: Math.min(90, source.y + 4),
+    });
+    const texts = [...(activeScreenshot.texts ?? []), clone];
+    updateActiveScreenshot({
+      ...withSyncedTexts(texts),
+      layerOrder: ensureLayerOrder({ ...activeScreenshot, texts }),
+    });
+    setSelectedElement({
+      type: "text",
+      screenshotId: activeScreenshotId,
+      id: clone.id,
+    });
+  };
+
+  const updateTextAlign = (textId: string, align: TextAlign) => {
+    updateText(textId, { align });
+  };
 
   // Set up global mouse listeners for dragging
   useEffect(() => {
@@ -697,8 +1403,15 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
           offsetY: 10,
         },
       };
+      const nextOverlays = [...activeScreenshot.overlayImages, newImage];
       updateActiveScreenshot({
-        overlayImages: [...activeScreenshot.overlayImages, newImage],
+        overlayImages: nextOverlays,
+        layerOrder: [
+          ...ensureLayerOrder(activeScreenshot).filter(
+            (k) => k !== `image:${newImage.id}`,
+          ),
+          `image:${newImage.id}`,
+        ],
       });
       setSelectedElement({
         type: "image",
@@ -726,7 +1439,12 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     const updatedImages = activeScreenshot.overlayImages.filter(
       (img) => img.id !== imageId,
     );
-    updateActiveScreenshot({ overlayImages: updatedImages });
+    updateActiveScreenshot({
+      overlayImages: updatedImages,
+      layerOrder: ensureLayerOrder(activeScreenshot).filter(
+        (k) => k !== `image:${imageId}`,
+      ),
+    });
     if (
       selectedElement?.type === "image" &&
       selectedElement.screenshotId === activeScreenshot.id &&
@@ -786,47 +1504,26 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     updateActiveScreenshot({ overlayImages: updatedImages });
   };
 
-  const bringImageForward = (imageId: string) => {
-    const images = [...activeScreenshot.overlayImages];
-    const index = images.findIndex((img) => img.id === imageId);
-    if (index !== -1 && index < images.length - 1) {
-      const temp = images[index];
-      images[index] = images[index + 1];
-      images[index + 1] = temp;
-      updateActiveScreenshot({ overlayImages: images });
-    }
+  const moveElementLayer = (
+    type: SelectedElement["type"],
+    id: string | undefined,
+    action: "forward" | "backward" | "front" | "back",
+  ) => {
+    const key = layerKeyFor(type, id);
+    const order = ensureLayerOrder(activeScreenshot);
+    updateActiveScreenshot({
+      layerOrder: moveLayerKey(order, key, action),
+    });
   };
 
-  const sendImageBackward = (imageId: string) => {
-    const images = [...activeScreenshot.overlayImages];
-    const index = images.findIndex((img) => img.id === imageId);
-    if (index > 0) {
-      const temp = images[index];
-      images[index] = images[index - 1];
-      images[index - 1] = temp;
-      updateActiveScreenshot({ overlayImages: images });
-    }
-  };
-
-  const bringImageToFront = (imageId: string) => {
-    const images = [...activeScreenshot.overlayImages];
-    const index = images.findIndex((img) => img.id === imageId);
-    if (index !== -1 && index < images.length - 1) {
-      const [image] = images.splice(index, 1);
-      images.push(image);
-      updateActiveScreenshot({ overlayImages: images });
-    }
-  };
-
-  const sendImageToBack = (imageId: string) => {
-    const images = [...activeScreenshot.overlayImages];
-    const index = images.findIndex((img) => img.id === imageId);
-    if (index > 0) {
-      const [image] = images.splice(index, 1);
-      images.unshift(image);
-      updateActiveScreenshot({ overlayImages: images });
-    }
-  };
+  const bringImageForward = (imageId: string) =>
+    moveElementLayer("image", imageId, "forward");
+  const sendImageBackward = (imageId: string) =>
+    moveElementLayer("image", imageId, "backward");
+  const bringImageToFront = (imageId: string) =>
+    moveElementLayer("image", imageId, "front");
+  const sendImageToBack = (imageId: string) =>
+    moveElementLayer("image", imageId, "back");
 
   const addDevice = () => {
     const nextDevice = activeDevice
@@ -840,9 +1537,16 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
           colorId: selectedColorId,
         });
 
+    const nextDevices = [...activeScreenshot.devices, nextDevice];
     updateActiveScreenshot({
-      devices: [...activeScreenshot.devices, nextDevice],
+      devices: nextDevices,
       activeDeviceId: nextDevice.id,
+      layerOrder: [
+        ...ensureLayerOrder(activeScreenshot).filter(
+          (k) => k !== `device:${nextDevice.id}`,
+        ),
+        `device:${nextDevice.id}`,
+      ],
     });
     setSelectedElement({
       type: "device",
@@ -863,19 +1567,20 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const removeDevice = (deviceId: string) => {
-    if (activeScreenshot.devices.length <= 1) return;
-
     const nextDevices = activeScreenshot.devices.filter(
       (device) => device.id !== deviceId,
     );
     const nextActiveDeviceId =
       activeScreenshot.activeDeviceId === deviceId
-        ? nextDevices[Math.max(0, nextDevices.length - 1)].id
+        ? nextDevices[0]?.id ?? ""
         : activeScreenshot.activeDeviceId;
 
     updateActiveScreenshot({
       devices: nextDevices,
       activeDeviceId: nextActiveDeviceId,
+      layerOrder: ensureLayerOrder(activeScreenshot).filter(
+        (k) => k !== `device:${deviceId}`,
+      ),
     });
 
     if (
@@ -883,35 +1588,26 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       selectedElement.screenshotId === activeScreenshot.id &&
       selectedElement.id === deviceId
     ) {
-      setSelectedElement({
-        type: "device",
-        id: nextActiveDeviceId,
-        screenshotId: activeScreenshot.id,
-      });
+      setSelectedElement(
+        nextActiveDeviceId
+          ? {
+              type: "device",
+              id: nextActiveDeviceId,
+              screenshotId: activeScreenshot.id,
+            }
+          : null,
+      );
     }
   };
 
-  const bringDeviceForward = (deviceId: string) => {
-    const nextDevices = [...activeScreenshot.devices];
-    const index = nextDevices.findIndex((device) => device.id === deviceId);
-    if (index !== -1 && index < nextDevices.length - 1) {
-      const temp = nextDevices[index];
-      nextDevices[index] = nextDevices[index + 1];
-      nextDevices[index + 1] = temp;
-      updateActiveScreenshot({ devices: nextDevices });
-    }
-  };
-
-  const sendDeviceBackward = (deviceId: string) => {
-    const nextDevices = [...activeScreenshot.devices];
-    const index = nextDevices.findIndex((device) => device.id === deviceId);
-    if (index > 0) {
-      const temp = nextDevices[index];
-      nextDevices[index] = nextDevices[index - 1];
-      nextDevices[index - 1] = temp;
-      updateActiveScreenshot({ devices: nextDevices });
-    }
-  };
+  const bringDeviceForward = (deviceId: string) =>
+    moveElementLayer("device", deviceId, "forward");
+  const sendDeviceBackward = (deviceId: string) =>
+    moveElementLayer("device", deviceId, "backward");
+  const bringDeviceToFront = (deviceId: string) =>
+    moveElementLayer("device", deviceId, "front");
+  const sendDeviceToBack = (deviceId: string) =>
+    moveElementLayer("device", deviceId, "back");
 
   const removeScreenshot = (id: string) => {
     if (screenshots.length <= 1) return;
@@ -922,9 +1618,153 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Canvas keyboard UX — delete, escape, enter-to-edit, arrow nudge
+  useEffect(() => {
+    const isTypingTarget = (target: HTMLElement | null) =>
+      Boolean(
+        target &&
+          (target.isContentEditable ||
+            target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT"),
+      );
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+
+      if (e.key === "Escape") {
+        if (inlineEditing) {
+          e.preventDefault();
+          setInlineEditing(null);
+          return;
+        }
+        if (selectedElement && !isTypingTarget(target)) {
+          e.preventDefault();
+          setSelectedElement(null);
+        }
+        return;
+      }
+
+      if (isTypingTarget(target)) return;
+
+      if (
+        (e.key === "Enter" || e.key === "F2") &&
+        selectedElement?.type === "text" &&
+        selectedElement.id
+      ) {
+        e.preventDefault();
+        startInlineEditing(selectedElement.screenshotId, selectedElement.id);
+        return;
+      }
+
+      if (
+        (e.key === "ArrowLeft" ||
+          e.key === "ArrowRight" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown") &&
+        selectedElement &&
+        !inlineEditing
+      ) {
+        e.preventDefault();
+        const step = e.shiftKey ? 0.5 : 1;
+        const dx =
+          e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy =
+          e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        const shot =
+          screenshots.find((s) => s.id === selectedElement.screenshotId) ??
+          activeScreenshot;
+
+        if (selectedElement.type === "text" && selectedElement.id) {
+          const texts = (shot.texts ?? []).map((t) =>
+            t.id === selectedElement.id
+              ? {
+                  ...t,
+                  x: Math.min(100, Math.max(0, t.x + dx)),
+                  y: Math.min(100, Math.max(0, t.y + dy)),
+                }
+              : t,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            withSyncedTexts(texts),
+            true,
+          );
+        } else if (selectedElement.type === "image" && selectedElement.id) {
+          const updatedImages = shot.overlayImages.map((img) =>
+            img.id === selectedElement.id
+              ? {
+                  ...img,
+                  x: Math.min(100, Math.max(0, img.x + dx)),
+                  y: Math.min(100, Math.max(0, img.y + dy)),
+                }
+              : img,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { overlayImages: updatedImages },
+            true,
+          );
+        } else if (selectedElement.type === "device" && selectedElement.id) {
+          const updatedDevices = shot.devices.map((device) =>
+            device.id === selectedElement.id
+              ? {
+                  ...device,
+                  x: device.x + dx,
+                  y: Math.min(100, Math.max(0, device.y + dy)),
+                }
+              : device,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { devices: updatedDevices },
+            true,
+          );
+        }
+        return;
+      }
+
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!selectedElement || inlineEditing) return;
+      e.preventDefault();
+
+      if (selectedElement.type === "image" && selectedElement.id) {
+        removeOverlayImage(selectedElement.id);
+        return;
+      }
+      if (selectedElement.type === "device" && selectedElement.id) {
+        removeDevice(selectedElement.id);
+        return;
+      }
+      if (selectedElement.type === "text" && selectedElement.id) {
+        const shot =
+          screenshots.find((s) => s.id === selectedElement.screenshotId) ??
+          activeScreenshot;
+        const texts = (shot.texts ?? []).filter(
+          (t) => t.id !== selectedElement.id,
+        );
+        updateScreenshotById(selectedElement.screenshotId, {
+          ...withSyncedTexts(texts),
+          layerOrder: ensureLayerOrder({ ...shot, texts }),
+        });
+        setSelectedElement(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    selectedElement,
+    inlineEditing,
+    activeScreenshot,
+    screenshots,
+    updateScreenshotById,
+    removeOverlayImage,
+    removeDevice,
+  ]);
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !activeDevice) return;
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result;
@@ -942,23 +1782,24 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     event.target.value = "";
   };
 
-  const getBackgroundStyle = (screenshot: Screenshot) => {
-    if (screenshot.backgroundMode === "gradient") {
-      const preset =
-        gradientPresets.find((p) => p.id === screenshot.gradientPresetId) ??
-        gradientPresets[0];
-      return `linear-gradient(180deg, ${preset.from}, ${preset.to})`;
-    }
-    return screenshot.backgroundColor;
-  };
+  const getBackgroundStyle = (screenshot: Screenshot) =>
+    getBackgroundCss(screenshot);
 
   const handleExport = () => {
+    const sizesToExport = exportSizeIds
+      .map((id) => exportSizes.find((s) => s.id === id))
+      .filter((s): s is ExportSize => Boolean(s));
+    const unique =
+      sizesToExport.length > 0
+        ? sizesToExport
+        : exportSize
+          ? [exportSize]
+          : [];
+
     void exportScreenshots({
       screenshots,
-      exportSize,
-      previewDimensions,
-      headlineFontSize,
-      subheadlineFontSize,
+      exportSizes: unique,
+      designWidth: exportSize.width,
     });
     setIsStarModalOpen(true);
   };
@@ -974,12 +1815,14 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     setSelectedDeviceIdState(defaultProject.selectedDeviceId);
     setSelectedColorIdState(defaultProject.selectedColorId);
     setExportSizeIdState(defaultProject.exportSizeId);
+    setExportSizeIdsState(defaultProject.exportSizeIds);
     setScreenshotsState(defaultProject.screenshots);
     setActiveScreenshotIdState(defaultProject.activeScreenshotId);
-    setHeadlineFontSizeState(defaultProject.headlineFontSize);
-    setSubheadlineFontSizeState(defaultProject.subheadlineFontSize);
     setSelectedElement(null);
     setIsStarModalOpen(false);
+    historyPast.current = [];
+    historyFuture.current = [];
+    setHistoryTick((t) => t + 1);
   };
 
   return (
@@ -1004,6 +1847,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         setSelectedColorId,
         exportSizeId,
         setExportSizeId,
+        exportSizeIds,
+        toggleExportSizeId,
         screenshots,
         setScreenshots,
         activeScreenshotId,
@@ -1017,6 +1862,20 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         setSubheadlineFontSize,
         previewDimensions,
         setPreviewDimensions,
+        contentFocusRequest,
+        clearContentFocusRequest,
+        inlineEditing,
+        startInlineEditing,
+        stopInlineEditing,
+        addText,
+        updateText,
+        removeText,
+        duplicateText,
+        suppressDeselectUntil,
+        canUndo: historyTick >= 0 && historyPast.current.length > 0,
+        canRedo: historyTick >= 0 && historyFuture.current.length > 0,
+        undo,
+        redo,
         previewRef,
         fileInputRef,
         canvasContainerRef,
@@ -1027,11 +1886,19 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         activeDevice,
         exportSize,
         updateActiveScreenshot,
+        updateScreenshotById,
         addScreenshot,
+        duplicateScreenshot,
         removeScreenshot,
+        reorderScreenshots,
+        moveScreenshot,
         handleElementMouseDown,
         handleElementMouseMove,
         handleElementMouseUp,
+        handleResizeStart,
+        handleRotateStart,
+        requestContentFocus,
+        updateTextAlign,
         addOverlayImage,
         addIcon,
         removeOverlayImage,
@@ -1044,10 +1911,13 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         removeDevice,
         bringDeviceForward,
         sendDeviceBackward,
+        bringDeviceToFront,
+        sendDeviceToBack,
         bringImageForward,
         sendImageBackward,
         bringImageToFront,
         sendImageToBack,
+        moveElementLayer,
         handleFileUpload,
         handleExport,
         getBackgroundStyle,

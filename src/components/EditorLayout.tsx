@@ -15,10 +15,38 @@ export const EditorLayout = () => {
     isStarModalOpen,
     setIsStarModalOpen,
     activeScreenshot,
+    selectedElement,
     updateActiveScreenshot,
+    updateText,
   } = useEditor();
 
   const [showBanner, setShowBanner] = useState(true);
+
+  const selectedText =
+    selectedElement?.type === "text" && selectedElement.id
+      ? (activeScreenshot.texts ?? []).find((t) => t.id === selectedElement.id)
+      : null;
+
+  const selectedFontFamily =
+    selectedText?.fontFamily ?? activeScreenshot.fontFamily ?? "Inter";
+
+  const handleFontSelect = (fontFamily: string) => {
+    if (selectedElement?.type === "text" && selectedElement.id) {
+      updateText(selectedElement.id, { fontFamily }, selectedElement.screenshotId);
+      return;
+    }
+    // No text selected — apply to all texts on the active screen
+    const texts = (activeScreenshot.texts ?? []).map((t) => ({
+      ...t,
+      fontFamily,
+    }));
+    updateActiveScreenshot({
+      texts,
+      fontFamily,
+      headlineFontFamily: fontFamily,
+      subheadlineFontFamily: fontFamily,
+    });
+  };
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0a] text-white overflow-hidden">
@@ -51,10 +79,8 @@ export const EditorLayout = () => {
         <FontPicker
           isOpen={isFontPickerOpen}
           onClose={() => setIsFontPickerOpen(false)}
-          selectedFontFamily={activeScreenshot.fontFamily}
-          onSelect={(fontFamily: string) =>
-            updateActiveScreenshot({ fontFamily })
-          }
+          selectedFontFamily={selectedFontFamily}
+          onSelect={handleFontSelect}
         />
         <GitHubStarModal
           isOpen={isStarModalOpen}

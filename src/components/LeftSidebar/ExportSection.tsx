@@ -1,67 +1,120 @@
 /**
  * ExportSection Component
  *
- * Export size selection and export button section.
+ * Store-aware export size selection with multi-size export support.
  */
 
 import type { ExportSize } from "../../types";
 import { SidebarSection } from "./SidebarSection";
-import { SelectionButton } from "./SelectionButton";
 import { STYLES } from "./constants";
 
 interface ExportSectionProps {
-  /** Available export sizes */
   exportSizes: ExportSize[];
-  /** Currently selected export size ID */
   selectedSizeId: string;
-  /** Number of screenshots to export */
+  selectedSizeIds: string[];
   screenshotCount: number;
-  /** Handler for size selection */
   onSizeSelect: (sizeId: string) => void;
-  /** Handler for export action */
+  onToggleExtraSize: (sizeId: string) => void;
   onExport: () => void;
 }
 
-/**
- * ExportSection - Export size and action section
- *
- * Displays export size options and the export button
- * with screenshot count.
- *
- * @param props - Component props
- *
- * @example
- * <ExportSection
- *   exportSizes={exportSizes}
- *   selectedSizeId={exportSizeId}
- *   screenshotCount={screenshots.length}
- *   onSizeSelect={setExportSizeId}
- *   onExport={handleExport}
- * />
- */
+function groupSizes(sizes: ExportSize[]): Map<string, ExportSize[]> {
+  const map = new Map<string, ExportSize[]>();
+  for (const size of sizes) {
+    const list = map.get(size.group) ?? [];
+    list.push(size);
+    map.set(size.group, list);
+  }
+  return map;
+}
+
 export const ExportSection = ({
   exportSizes,
   selectedSizeId,
+  selectedSizeIds,
   screenshotCount,
   onSizeSelect,
+  onToggleExtraSize,
   onExport,
-}: ExportSectionProps) => (
-  <SidebarSection title="Export">
-    {/* Size options */}
-    <div className={STYLES.buttonList}>
-      {exportSizes.map((size) => (
-        <SelectionButton
-          key={size.id}
-          label={size.label}
-          isSelected={selectedSizeId === size.id}
-          onClick={() => onSizeSelect(size.id)}
-        />
-      ))}
-    </div>
+}: ExportSectionProps) => {
+  const groups = groupSizes(exportSizes);
+  const selected = exportSizes.find((s) => s.id === selectedSizeId);
+  const exportCount = Math.max(selectedSizeIds.length, 1);
 
-    {/* Export button */}
-    <button onClick={onExport} className={STYLES.primaryButton}>
-      Export All ({screenshotCount})
-    </button>
-  </SidebarSection>
-);
+  return (
+    <SidebarSection title="Export">
+      <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+        {Array.from(groups.entries()).map(([group, sizes]) => (
+          <div key={group}>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+              {group}
+            </p>
+            <div className={STYLES.buttonList}>
+              {sizes.map((size) => {
+                const isPrimary = selectedSizeId === size.id;
+                const isChecked = selectedSizeIds.includes(size.id);
+                return (
+                  <div key={size.id} className="flex items-stretch gap-1">
+                    <button
+                      type="button"
+                      className={`${STYLES.selectionButton} flex-1 ${
+                        isPrimary
+                          ? STYLES.selectionButtonActive
+                          : STYLES.selectionButtonInactive
+                      }`}
+                      onClick={() => onSizeSelect(size.id)}
+                    >
+                      <span className="block text-xs leading-snug">
+                        {size.shortLabel}
+                      </span>
+                      <span
+                        className={`block text-[10px] mt-0.5 ${
+                          isPrimary ? "text-black/60" : "text-gray-500"
+                        }`}
+                      >
+                        {size.width}×{size.height}
+                        {size.required ? " · required" : ""}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      title="Include in multi-export"
+                      onClick={() => onToggleExtraSize(size.id)}
+                      className={`w-8 shrink-0 rounded-md text-xs font-bold transition-colors ${
+                        isChecked
+                          ? "bg-emerald-500 text-black"
+                          : "bg-[#2a2a2a] text-gray-500 hover:bg-[#333]"
+                      }`}
+                    >
+                      {isChecked ? "✓" : "+"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {selected && (
+        <p className="mt-2 text-[11px] text-gray-400">
+          Preview:{" "}
+          <span className="text-gray-200">
+            {selected.width}×{selected.height}
+          </span>
+          {selected.store === "appstore" && (
+            <span className="ml-1 text-emerald-400">· App Store OK</span>
+          )}
+          {selected.store === "play" && (
+            <span className="ml-1 text-emerald-400">· Play OK</span>
+          )}
+        </p>
+      )}
+
+      <button onClick={onExport} className={STYLES.primaryButton}>
+        Export {screenshotCount} shot{screenshotCount !== 1 ? "s" : ""}
+        {exportCount > 1 ? ` × ${exportCount} sizes` : ""}
+      </button>
+    </SidebarSection>
+  );
+};

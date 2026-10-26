@@ -1,50 +1,80 @@
 /**
- * ContentSection Component
- *
- * Text content editors for headline and subheadline.
+ * ContentSection — editor for the currently selected text only.
  */
 
+import { useEffect, useRef } from "react";
 import type { Screenshot } from "../../types";
+import { useEditor } from "../../context/EditorContext";
 import { SidebarSection } from "./SidebarSection";
 import { RichTextEditor } from "../RichTextEditor";
 
 interface ContentSectionProps {
-  /** Active screenshot data */
   screenshot: Screenshot;
-  /** Update screenshot handler */
   onUpdateScreenshot: (updates: Partial<Screenshot>) => void;
 }
 
-/**
- * ContentSection - Text content editors
- *
- * Rich text editors for headline and subheadline.
- *
- * @param props - Component props
- */
-export const ContentSection = ({
-  screenshot,
-  onUpdateScreenshot,
-}: ContentSectionProps) => (
-  <SidebarSection title="Content">
-    <div className="space-y-4">
-      <div>
-        <label className="block text-xs text-gray-400 mb-1">Headline</label>
-        <RichTextEditor
-          value={screenshot.headline}
-          onChange={(html) => onUpdateScreenshot({ headline: html })}
-          placeholder="Enter headline..."
-        />
-      </div>
+export const ContentSection = ({ screenshot }: ContentSectionProps) => {
+  const {
+    contentFocusRequest,
+    clearContentFocusRequest,
+    selectedElement,
+    updateText,
+    addText,
+  } = useEditor();
+  const editorWrapRef = useRef<HTMLDivElement>(null);
 
-      <div>
-        <label className="block text-xs text-gray-400 mb-1">Subheadline</label>
+  const textId =
+    selectedElement?.screenshotId === screenshot.id &&
+    selectedElement.type === "text"
+      ? selectedElement.id
+      : null;
+
+  const text = textId
+    ? (screenshot.texts ?? []).find((t) => t.id === textId)
+    : null;
+
+  useEffect(() => {
+    if (!contentFocusRequest || contentFocusRequest !== textId) return;
+    editorWrapRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    const editable = editorWrapRef.current?.querySelector(
+      '[contenteditable="true"]',
+    ) as HTMLElement | null;
+    editable?.focus();
+    clearContentFocusRequest();
+  }, [contentFocusRequest, clearContentFocusRequest, textId]);
+
+  if (!text || !textId) {
+    return (
+      <SidebarSection title="Content">
+        <p className="text-[11px] text-gray-500 leading-relaxed mb-3">
+          Select a text on the canvas, or add a new one.
+        </p>
+        <button
+          type="button"
+          onClick={addText}
+          className="w-full text-sm rounded-md bg-white/10 hover:bg-white/15 px-3 py-2 text-gray-100"
+        >
+          + Add text
+        </button>
+      </SidebarSection>
+    );
+  }
+
+  return (
+    <SidebarSection title="Content">
+      <div ref={editorWrapRef}>
+        <label className="block text-xs text-gray-400 mb-1">Selected text</label>
         <RichTextEditor
-          value={screenshot.subheadline}
-          onChange={(html) => onUpdateScreenshot({ subheadline: html })}
-          placeholder="Enter subheadline..."
+          value={text.content}
+          onChange={(html) => {
+            updateText(textId, { content: html });
+          }}
+          placeholder="Enter text..."
         />
       </div>
-    </div>
-  </SidebarSection>
-);
+    </SidebarSection>
+  );
+};

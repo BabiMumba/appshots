@@ -33,6 +33,29 @@ describe("parseRichText", () => {
 
     expect(segment.backgroundColor).toBe("yellow");
   });
+
+  it("treats contenteditable block divs as hard line breaks", () => {
+    const segments = parseRichText(
+      "<div>justement</div><div>magnifique</div>",
+      "#ffffff",
+    );
+
+    expect(segments.map((s) => s.text)).toEqual([
+      "justement",
+      "\n",
+      "magnifique",
+    ]);
+  });
+
+  it("preserves explicit br line breaks", () => {
+    const segments = parseRichText("justement<br>magnifique", "#ffffff");
+
+    expect(segments.map((s) => s.text)).toEqual([
+      "justement",
+      "\n",
+      "magnifique",
+    ]);
+  });
 });
 
 describe("renderRichText", () => {

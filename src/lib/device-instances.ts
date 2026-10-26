@@ -66,6 +66,9 @@ export const createDeviceInstance = (
     style: overrides.style ?? "flat",
     rotateY: overrides.rotateY ?? -15,
     rotateX: overrides.rotateX ?? 5,
+    imageZoom: overrides.imageZoom ?? 1,
+    imageOffsetX: overrides.imageOffsetX ?? 0,
+    imageOffsetY: overrides.imageOffsetY ?? 0,
   };
 };
 
@@ -124,6 +127,16 @@ export const ensureDeviceInstances = (
               typeof device.rotateY === "number" ? device.rotateY : undefined,
             rotateX:
               typeof device.rotateX === "number" ? device.rotateX : undefined,
+            imageZoom:
+              typeof device.imageZoom === "number" ? device.imageZoom : undefined,
+            imageOffsetX:
+              typeof device.imageOffsetX === "number"
+                ? device.imageOffsetX
+                : undefined,
+            imageOffsetY:
+              typeof device.imageOffsetY === "number"
+                ? device.imageOffsetY
+                : undefined,
           }),
         )
     : [];

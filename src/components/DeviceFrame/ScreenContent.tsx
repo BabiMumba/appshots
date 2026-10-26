@@ -1,37 +1,39 @@
 /**
  * ScreenContent Component
  *
- * Renders the content displayed on the device screen.
- * Shows either the uploaded screenshot or a placeholder message.
+ * Renders the content displayed on the device screen with cover-fit + zoom/pan.
  */
 
 interface ScreenContentProps {
-  /** URL of the screenshot image, or null if no image is uploaded */
   screenshotSrc: string | null;
+  imageZoom?: number;
+  imageOffsetX?: number;
+  imageOffsetY?: number;
 }
 
-/**
- * Displays the device screen content.
- *
- * @param props - Component props
- * @param props.screenshotSrc - The screenshot image URL or null
- *
- * @example
- * // With an image
- * <ScreenContent screenshotSrc="https://example.com/screenshot.png" />
- *
- * @example
- * // Without an image (shows placeholder)
- * <ScreenContent screenshotSrc={null} />
- */
-export const ScreenContent = ({ screenshotSrc }: ScreenContentProps) => {
+export const ScreenContent = ({
+  screenshotSrc,
+  imageZoom = 1,
+  imageOffsetX = 0,
+  imageOffsetY = 0,
+}: ScreenContentProps) => {
   if (screenshotSrc) {
+    const zoom = Math.max(0.5, Math.min(3, imageZoom || 1));
     return (
-      <img
-        src={screenshotSrc}
-        alt="Screenshot"
-        className="w-full h-full object-fill"
-      />
+      <div className="w-full h-full overflow-hidden relative bg-black">
+        <img
+          src={screenshotSrc}
+          alt="Screenshot"
+          className="absolute left-1/2 top-1/2 max-w-none"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            transform: `translate(calc(-50% + ${imageOffsetX}%), calc(-50% + ${imageOffsetY}%)) scale(${zoom})`,
+            transformOrigin: "center center",
+          }}
+        />
+      </div>
     );
   }
 

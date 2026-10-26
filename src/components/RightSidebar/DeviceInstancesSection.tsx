@@ -81,9 +81,8 @@ export const DeviceInstancesSection = ({
                     e.stopPropagation();
                     onRemoveDevice(device.id);
                   }}
-                  disabled={screenshot.devices.length === 1}
                   className={STYLES.iconButtonDelete}
-                  title="Remove"
+                  title="Remove device"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>

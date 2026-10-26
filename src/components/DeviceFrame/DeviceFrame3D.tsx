@@ -41,7 +41,9 @@ export const DeviceFrame3D = ({
   selectedDevice,
   selectedColor,
 }: DeviceFrame3DProps) => {
-  const isSamsungDevice = selectedDevice.id.startsWith("samsung-");
+  const isSamsungDevice =
+    selectedDevice.id.startsWith("samsung-") ||
+    selectedDevice.id.startsWith("pixel-");
   const isSamsungTablet = selectedDevice.id.includes("tab");
 
   const frameBackground = useMemo(
@@ -110,7 +112,12 @@ export const DeviceFrame3D = ({
           className="relative w-full h-full overflow-hidden"
           style={screenStyle}
         >
-          <ScreenContent screenshotSrc={device.screenshotSrc} />
+          <ScreenContent
+            screenshotSrc={device.screenshotSrc}
+            imageZoom={device.imageZoom}
+            imageOffsetX={device.imageOffsetX}
+            imageOffsetY={device.imageOffsetY}
+          />
           <CameraElement
             device={selectedDevice}
             isSamsung={isSamsungDevice}

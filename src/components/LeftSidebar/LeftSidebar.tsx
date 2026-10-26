@@ -2,13 +2,6 @@
  * LeftSidebar Component
  *
  * Main sidebar containing project switcher, device selection and export options.
- *
- * Features:
- * - Project management (create, switch, rename, delete)
- * - Device model selection
- * - Device color selection
- * - Export size selection
- * - Export all screenshots button
  */
 
 import { useEditor } from "../../context/EditorContext";
@@ -19,15 +12,6 @@ import { ExportSection } from "./ExportSection";
 import { ProjectSwitcher } from "../ProjectSwitcher";
 import { STYLES } from "./constants";
 
-/**
- * LeftSidebar - Main settings sidebar
- *
- * Provides controls for project management, device selection,
- * color options, and export functionality.
- *
- * @example
- * <LeftSidebar />
- */
 export const LeftSidebar = () => {
   const {
     selectedDeviceId,
@@ -37,11 +21,12 @@ export const LeftSidebar = () => {
     selectedDevice,
     exportSizeId,
     setExportSizeId,
+    exportSizeIds,
+    toggleExportSizeId,
     handleExport,
     screenshots,
   } = useEditor();
 
-  // Handle device selection with default color
   const handleDeviceSelect = (deviceId: string, defaultColorId: string) => {
     setSelectedDeviceId(deviceId);
     setSelectedColorId(defaultColorId);
@@ -51,7 +36,6 @@ export const LeftSidebar = () => {
     <aside className={STYLES.sidebar}>
       <SidebarHeader />
 
-      {/* Project Switcher */}
       <div className="px-4 pb-4 border-b border-zinc-800">
         <ProjectSwitcher />
       </div>
@@ -69,8 +53,10 @@ export const LeftSidebar = () => {
         <ExportSection
           exportSizes={exportSizes}
           selectedSizeId={exportSizeId}
+          selectedSizeIds={exportSizeIds}
           screenshotCount={screenshots.length}
           onSizeSelect={setExportSizeId}
+          onToggleExtraSize={toggleExportSizeId}
           onExport={handleExport}
         />
       </div>
