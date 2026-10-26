@@ -14,7 +14,7 @@ import {
   resolveGradientColors,
 } from "./gradient-style";
 import { drawCoverImage } from "./screen-image";
-import { ensureLayerOrder } from "./layer-order";
+import { ensureLayerOrder, zIndexForLayer } from "./layer-order";
 import { exportUiScale } from "./design-scale";
 import JSZip from "jszip";
 
@@ -1066,32 +1066,43 @@ const exportOneSize = async ({
     const renderableDevices = getRenderableDevicesForScreenshot(screenshots, i);
     const layerOrder = ensureLayerOrder(screenshot);
 
+    type PaintJob = { z: number; paint: () => void | Promise<void> };
+    const jobs: PaintJob[] = [];
+
     for (const key of layerOrder) {
       if (key.startsWith("text:")) {
         const textId = key.slice(5);
         const text = (screenshot.texts ?? []).find((t) => t.id === textId);
-        if (text) drawTextOverlay(text);
+        if (text) {
+          jobs.push({
+            z: zIndexForLayer(layerOrder, key),
+            paint: () => drawTextOverlay(text),
+          });
+        }
       } else if (key.startsWith("image:")) {
         const imageId = key.slice(6);
         const overlay = screenshot.overlayImages.find((img) => img.id === imageId);
-        if (overlay) await drawOneOverlay(overlay);
-      } else if (key.startsWith("device:")) {
-        const deviceId = key.slice(7);
-        const match = renderableDevices.find(
-          (item) =>
-            item.device.id === deviceId &&
-            item.ownerScreenshotId === screenshot.id,
-        );
-        if (match) {
-          await drawDeviceInstance(ctx, canvas, match.device, scaleX, match.localX);
+        if (overlay) {
+          jobs.push({
+            z: zIndexForLayer(layerOrder, key),
+            paint: () => drawOneOverlay(overlay),
+          });
         }
       }
+      // Owner devices are drawn via renderableDevices below (same z as guests)
     }
 
-    // Overflow devices from neighbors (not in this screenshot's layerOrder)
     for (const item of renderableDevices) {
-      if (item.ownerScreenshotId === screenshot.id) continue;
-      await drawDeviceInstance(ctx, canvas, item.device, scaleX, item.localX);
+      jobs.push({
+        z: item.layerZIndex,
+        paint: () =>
+          drawDeviceInstance(ctx, canvas, item.device, scaleX, item.localX),
+      });
+    }
+
+    jobs.sort((a, b) => a.z - b.z);
+    for (const job of jobs) {
+      await job.paint();
     }
 
     // Flatten to opaque PNG (no alpha channel)

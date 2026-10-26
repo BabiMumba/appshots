@@ -128,7 +128,9 @@ export const ScreenshotCard = ({
 
   const handleCardClick = (e: React.MouseEvent) => {
     onSelect();
-    if (isActive && isEmptyTarget(e.target)) {
+    // Empty click always clears selection (including when switching screens).
+    // Device/image/text clicks stopPropagation so they never reach here.
+    if (isEmptyTarget(e.target)) {
       onDeselect();
     }
   };
@@ -145,19 +147,54 @@ export const ScreenshotCard = ({
     }
     if (selectedElement.type === "text" && selectedElement.id) {
       const t = texts.find((x) => x.id === selectedElement.id);
-      return t ? { x: t.x, y: t.y } : null;
+      return t
+        ? {
+            x: t.x,
+            y: t.y,
+            halfWidth: t.width / 2,
+            clearTopCenter: false,
+          }
+        : null;
     }
     if (selectedElement.type === "image" && selectedElement.id) {
       const img = screenshot.overlayImages.find(
         (i) => i.id === selectedElement.id,
       );
-      return img ? { x: img.x, y: img.y } : null;
+      return img
+        ? {
+            x: img.x,
+            y: img.y,
+            halfWidth: img.width / 2,
+            clearTopCenter: true,
+          }
+        : null;
     }
     if (selectedElement.type === "device" && selectedElement.id) {
+      // Prefer the local (clipped) fragment on this card for chip placement
+      const local = renderableDevices.find(
+        (d) =>
+          d.device.id === selectedElement.id &&
+          d.ownerScreenshotId === selectedElement.screenshotId,
+      );
+      if (local) {
+        return {
+          x: local.localX,
+          y: local.device.y,
+          halfWidth: local.device.scale / 2,
+          clearTopCenter: true,
+        };
+      }
       const device = screenshot.devices.find(
         (d) => d.id === selectedElement.id,
       );
-      return device ? { x: device.x, y: device.y } : null;
+      return device
+        ? {
+            x: device.x,
+            y: device.y,
+            halfWidth: device.scale / 2,
+            clearTopCenter: true,
+          }
+        : null;
     }
     return null;
   })();
@@ -192,7 +229,8 @@ export const ScreenshotCard = ({
 
       {canRemove && <RemoveButton onRemove={onRemove} />}
 
-      <div className="absolute inset-0 select-none overflow-visible">
+      {/* Clip everything to the screen frame — devices enter adjacent screens from the inside */}
+      <div className="absolute inset-0 select-none overflow-hidden rounded-xl">
         {isActive && (
           <div
             className="absolute inset-0 z-[1]"
@@ -257,9 +295,12 @@ export const ScreenshotCard = ({
               uppercase={text.uppercase}
               fontWeight={text.fontWeight}
               zIndex={
-                selected || editing
+                editing
                   ? 280
-                  : Math.max(20, zIndexForLayer(layerOrder, `text:${text.id}`))
+                  : Math.max(
+                      20,
+                      zIndexForLayer(layerOrder, `text:${text.id}`),
+                    )
               }
               paddingPx={4 * (previewW / 400)}
               isSelected={selected}
@@ -281,55 +322,70 @@ export const ScreenshotCard = ({
           );
         })}
 
-        {renderableDevices.map(({ device, localX, ownerScreenshotId }) => {
-          const order =
-            ownerScreenshotId === screenshot.id
-              ? layerOrder
-              : ensureLayerOrder(screenshot);
-          const z = zIndexForLayer(order, `device:${device.id}`);
-          return (
-            <DeviceContainer
-              key={`${ownerScreenshotId}-${device.id}`}
-              device={device}
-              renderX={localX}
-              zIndex={z}
-              isSelected={isElementSelected(
-                selectedElement,
-                "device",
-                ownerScreenshotId,
-                device.id,
-              )}
-              isInteractive
-              shadowScale={previewScale}
-              onMouseDown={(e) =>
-                onElementMouseDown(e, "device", ownerScreenshotId, device.id)
-              }
-              onResizeStart={(e, handle) =>
-                onResizeStart(e, "device", ownerScreenshotId, device.id, handle)
-              }
-              onRotateStart={(e) =>
-                onRotateStart(e, "device", ownerScreenshotId, device.id)
-              }
-              onDoubleClick={() =>
-                onDeviceDoubleClick(ownerScreenshotId, device.id)
-              }
-              onContextMenu={(e) =>
-                onElementContextMenu(e, "device", ownerScreenshotId, device.id)
-              }
-            />
-          );
-        })}
-
-        {showQuickActions && quickActionPos && selectedElement && (
-          <ElementQuickActions
-            xPercent={quickActionPos.x}
-            yPercent={Math.max(quickActionPos.y, 8)}
-            showDuplicate
-            onDuplicate={onDuplicateElement}
-            onDelete={onDeleteElement}
-          />
+        {renderableDevices.map(
+          ({ device, localX, ownerScreenshotId, layerZIndex }) => {
+            const selected = isElementSelected(
+              selectedElement,
+              "device",
+              ownerScreenshotId,
+              device.id,
+            );
+            // Handles on every visible fragment so the overflow half (B) can
+            // resize/rotate — owner-only handles were clipped/unreachable.
+            return (
+              <DeviceContainer
+                key={`${ownerScreenshotId}-${device.id}`}
+                device={device}
+                renderX={localX}
+                zIndex={layerZIndex}
+                isSelected={selected}
+                isInteractive
+                showHandles={selected}
+                shadowScale={previewScale}
+                onMouseDown={(e) =>
+                  onElementMouseDown(e, "device", ownerScreenshotId, device.id)
+                }
+                onResizeStart={(e, handle) =>
+                  onResizeStart(
+                    e,
+                    "device",
+                    ownerScreenshotId,
+                    device.id,
+                    handle,
+                  )
+                }
+                onRotateStart={(e) =>
+                  onRotateStart(e, "device", ownerScreenshotId, device.id)
+                }
+                onDoubleClick={() =>
+                  onDeviceDoubleClick(ownerScreenshotId, device.id)
+                }
+                onContextMenu={(e) =>
+                  onElementContextMenu(
+                    e,
+                    "device",
+                    ownerScreenshotId,
+                    device.id,
+                  )
+                }
+              />
+            );
+          },
         )}
       </div>
+
+      {/* Chrome outside the clip: remove + quick actions stay readable */}
+      {showQuickActions && quickActionPos && selectedElement && (
+        <ElementQuickActions
+          xPercent={quickActionPos.x}
+          yPercent={Math.max(quickActionPos.y, 8)}
+          halfWidthPercent={quickActionPos.halfWidth}
+          clearTopCenter={quickActionPos.clearTopCenter}
+          showDuplicate
+          onDuplicate={onDuplicateElement}
+          onDelete={onDeleteElement}
+        />
+      )}
     </div>
   );
 };

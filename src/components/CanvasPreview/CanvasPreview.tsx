@@ -2,9 +2,13 @@
  * CanvasPreview — main editing surface.
  */
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useEditor } from "../../context/EditorContext";
-import { getRenderableDevicesForScreenshot } from "../../lib/device-overflow";
+import {
+  gapPercentFromCardWidth,
+  getRenderableDevicesForScreenshot,
+  PREVIEW_SCREEN_GAP_PX,
+} from "../../lib/device-overflow";
 import { Toolbar } from "./Toolbar";
 import { ScreenshotCard } from "./ScreenshotCard";
 import { TextFormatBar } from "./TextFormatBar";
@@ -75,11 +79,30 @@ export const CanvasPreview = () => {
   } = useEditor();
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const screensRowRef = useRef<HTMLDivElement>(null);
+  const [previewGapPercent, setPreviewGapPercent] = useState(0);
 
   useResizeObserver({
     elementRef: previewRef,
     onResize: setPreviewDimensions,
     deps: [activeScreenshotId, exportSize.id],
+  });
+
+  const updatePreviewGap = useCallback(() => {
+    const card = screensRowRef.current?.querySelector(
+      "[data-screenshot-card='true']",
+    );
+    if (card instanceof HTMLElement && card.offsetWidth > 0) {
+      setPreviewGapPercent(
+        gapPercentFromCardWidth(card.offsetWidth, PREVIEW_SCREEN_GAP_PX),
+      );
+    }
+  }, []);
+
+  useResizeObserver({
+    elementRef: screensRowRef,
+    onResize: updatePreviewGap,
+    deps: [exportSize.id, screenshots.length],
   });
 
   const activeIndex = screenshots.findIndex((s) => s.id === activeScreenshotId);
@@ -277,11 +300,16 @@ export const CanvasPreview = () => {
           if (e.target === e.currentTarget) safeDeselect();
         }}
       >
-        <div className="flex gap-1 h-full min-w-max">
+        <div
+          ref={screensRowRef}
+          className="flex h-full min-w-max"
+          style={{ gap: PREVIEW_SCREEN_GAP_PX }}
+        >
           {screenshots.map((screenshot, index) => {
             const renderableDevices = getRenderableDevicesForScreenshot(
               screenshots,
               index,
+              previewGapPercent,
             );
 
             return (
@@ -299,7 +327,6 @@ export const CanvasPreview = () => {
                   if (activeScreenshotId !== screenshot.id) {
                     stopInlineEditing();
                     setActiveScreenshotId(screenshot.id);
-                    setSelectedElement(null);
                     setContextMenu(null);
                   }
                 }}

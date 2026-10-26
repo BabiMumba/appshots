@@ -74,7 +74,7 @@ export const SelectionHandles = ({
       <button
         type="button"
         title="Rotate"
-        className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-white border-2 border-violet-500 text-violet-600 flex items-center justify-center shadow-sm z-20 pointer-events-auto cursor-grab active:cursor-grabbing"
+        className="absolute -top-8 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-white border-2 border-violet-500 text-violet-600 flex items-center justify-center shadow-sm z-20 pointer-events-auto cursor-grab active:cursor-grabbing"
         onMouseDown={(e) => onRotateStart?.(e)}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

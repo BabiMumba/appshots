@@ -23,6 +23,8 @@ interface DeviceContainerProps {
   isSelected: boolean;
   /** Whether mouse interactions are enabled */
   isInteractive: boolean;
+  /** Show resize/rotate handles (all visible fragments when selected) */
+  showHandles?: boolean;
   /** Handler for mouse down event */
   onMouseDown: (e: React.MouseEvent) => void;
   onResizeStart?: (
@@ -47,6 +49,7 @@ export const DeviceContainer = ({
   zIndex,
   isSelected,
   isInteractive,
+  showHandles = true,
   onMouseDown,
   onResizeStart,
   onRotateStart,
@@ -58,6 +61,12 @@ export const DeviceContainer = ({
   const selectedDevice = getDeviceSpecById(device.deviceId);
   const selectedColor = getDeviceColorById(selectedDevice.id, device.colorId);
 
+  // Single transform stack (translate + rotate) so owner/guest clips share the
+  // same origin — nested translate then rotate was drifting halves when tilted.
+  const transform = is3D
+    ? `translateX(-50%) rotateY(${device.rotateY}deg) rotateX(${device.rotateX}deg)`
+    : `translateX(-50%) rotate(${device.rotation}deg)`;
+
   return (
     <div
       data-draggable-element="device"
@@ -66,10 +75,13 @@ export const DeviceContainer = ({
         left: `${renderX}%`,
         width: `${device.scale}%`,
         top: `${device.y}%`,
-        transform: "translateX(-50%)",
+        transform,
+        transformOrigin: "center center",
+        transformStyle: is3D ? "preserve-3d" : undefined,
         zIndex,
         filter: getDropShadowFilter(device.shadow, shadowScale),
         perspective: is3D ? `${1200 * shadowScale}px` : undefined,
+        ...getDeviceSelectionStyles(isSelected),
       }}
       onMouseDown={isInteractive ? onMouseDown : undefined}
       onContextMenu={isInteractive ? onContextMenu : undefined}
@@ -83,23 +95,7 @@ export const DeviceContainer = ({
       }
       onClick={(e) => e.stopPropagation()}
     >
-      <div
-        className="relative"
-        style={
-          is3D
-            ? {
-                transform: `rotateY(${device.rotateY}deg) rotateX(${device.rotateX}deg)`,
-                transformStyle: "preserve-3d",
-                transformOrigin: "center center",
-                ...getDeviceSelectionStyles(isSelected),
-              }
-            : {
-                transform: `rotate(${device.rotation}deg)`,
-                transformOrigin: "center center",
-                ...getDeviceSelectionStyles(isSelected),
-              }
-        }
-      >
+      <div className="relative">
         {is3D ? (
           <DeviceFrame3D
             device={device}
@@ -113,7 +109,7 @@ export const DeviceContainer = ({
             selectedColor={selectedColor}
           />
         )}
-        {isSelected && isInteractive && (
+        {isSelected && isInteractive && showHandles && (
           <SelectionHandles
             showCorners
             showRotation={!is3D}

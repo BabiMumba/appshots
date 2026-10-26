@@ -11,6 +11,11 @@ describe("getDeviceLocalXForScreenshot", () => {
     expect(getDeviceLocalXForScreenshot(125, 0, 1)).toBe(25);
     expect(getDeviceLocalXForScreenshot(-20, 2, 1)).toBe(80);
   });
+
+  it("shifts by the preview gap so clipped halves stay aligned", () => {
+    expect(getDeviceLocalXForScreenshot(125, 0, 1, 3)).toBe(22);
+    expect(getDeviceLocalXForScreenshot(125, 0, 1, 0)).toBe(25);
+  });
 });
 
 describe("isDeviceVisibleInScreenshot", () => {
@@ -73,14 +78,23 @@ describe("getRenderableDevicesForScreenshot", () => {
         expect.objectContaining({
           ownerScreenshotId: "screen-1",
           localX: 25,
+          isOwner: false,
+          layerZIndex: expect.any(Number),
           device: expect.objectContaining({ id: "device-a" }),
         }),
         expect.objectContaining({
           ownerScreenshotId: "screen-2",
           localX: 50,
+          isOwner: true,
+          layerZIndex: expect.any(Number),
           device: expect.objectContaining({ id: "device-b" }),
         }),
       ]),
     );
+
+    const guest = renderables.find((r) => r.device.id === "device-a");
+    const owner = renderables.find((r) => r.device.id === "device-b");
+    expect(guest?.isOwner).toBe(false);
+    expect(owner?.isOwner).toBe(true);
   });
 });

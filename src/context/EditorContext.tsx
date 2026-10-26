@@ -1014,6 +1014,13 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         const meta = resizeMeta.current;
         const deltaX = ((e.clientX - dragStartPos.current.x) / width) * 100;
         const deltaY = ((e.clientY - dragStartPos.current.y) / height) * 100;
+        // Handles sit in the element's rotated local space — project screen
+        // deltas so "drag left" still means left relative to the tilted frame.
+        const rad = (-(meta.startRotation || 0) * Math.PI) / 180;
+        const localDeltaX =
+          deltaX * Math.cos(rad) - deltaY * Math.sin(rad);
+        const localDeltaY =
+          deltaX * Math.sin(rad) + deltaY * Math.cos(rad);
         // Canva-like: drag handle inward (toward center) = shrink
         const isWest = meta.handle === "w" || meta.handle === "nw" || meta.handle === "sw";
         const isNorth = meta.handle === "nw" || meta.handle === "ne";
@@ -1022,8 +1029,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
           meta.handle === "ne" ||
           meta.handle === "sw" ||
           meta.handle === "se";
-        const signedX = (isWest ? -1 : 1) * deltaX;
-        const signedY = (isNorth ? -1 : 1) * deltaY;
+        const signedX = (isWest ? -1 : 1) * localDeltaX;
+        const signedY = (isNorth ? -1 : 1) * localDeltaY;
         const growDelta = isCorner ? (signedX + signedY) / 2 : signedX;
 
         const target = screenshots.find(
