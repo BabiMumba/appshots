@@ -4,6 +4,7 @@
 
 import JSZip from "jszip";
 import type { Project } from "../types";
+import { materializeProjectImages } from "./image-store";
 
 export const APPSHOTS_FORMAT = "appshots" as const;
 export const APPSHOTS_FILE_VERSION = 1;
@@ -86,7 +87,8 @@ export function buildAppshotsPayload(project: Project): AppshotsFile {
 }
 
 export async function buildProjectBlob(project: Project): Promise<Blob> {
-  const payload = buildAppshotsPayload(project);
+  const materialized = await materializeProjectImages(project);
+  const payload = buildAppshotsPayload(materialized);
   const zip = new JSZip();
   zip.file("project.json", JSON.stringify(payload));
   return zip.generateAsync({

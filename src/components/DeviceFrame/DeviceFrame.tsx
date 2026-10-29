@@ -27,6 +27,8 @@ interface DeviceFrameProps {
   selectedDevice: DeviceSpec;
   /** Selected device frame color */
   selectedColor: DeviceColor;
+  /** Empty-screen upload / drop handler */
+  onScreenImageFile?: (file: File) => void;
 }
 
 /**
@@ -45,6 +47,7 @@ export const DeviceFrame = ({
   device,
   selectedDevice,
   selectedColor,
+  onScreenImageFile,
 }: DeviceFrameProps) => {
   // Device type detection
   const isSamsungDevice =
@@ -85,6 +88,7 @@ export const DeviceFrame = ({
           imageZoom={device.imageZoom}
           imageOffsetX={device.imageOffsetX}
           imageOffsetY={device.imageOffsetY}
+          onScreenImageFile={onScreenImageFile}
         />
         <CameraElement
           device={selectedDevice}

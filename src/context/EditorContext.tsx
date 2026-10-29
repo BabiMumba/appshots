@@ -48,6 +48,15 @@ import {
 } from "../lib/text-overlays";
 import type { TextOverlay } from "../types";
 import {
+  buildTemplateProject,
+  type TemplateId,
+} from "../lib/templates";
+import {
+  hydrateProjectsImages,
+  ingestImageFile,
+  materializeProjectImages,
+} from "../lib/image-store";
+import {
   loadPersistedState,
   useEditorPersistence,
   clearPersistedState,
@@ -105,6 +114,9 @@ interface EditorContextType {
   setIsFontPickerOpen: (open: boolean) => void;
   isExportSuccessOpen: boolean;
   setIsExportSuccessOpen: (open: boolean) => void;
+  isExporting: boolean;
+  exportError: string | null;
+  dismissExportError: () => void;
   selectedDeviceId: string;
   setSelectedDeviceId: (id: string) => void;
   selectedColorId: string;
@@ -113,6 +125,7 @@ interface EditorContextType {
   setExportSizeId: (id: string) => void;
   exportSizeIds: string[];
   toggleExportSizeId: (id: string) => void;
+  applyExportPack: (sizeIds: string[]) => void;
   screenshots: Screenshot[];
   setScreenshots: (screenshots: Screenshot[]) => void;
   activeScreenshotId: string;
@@ -225,7 +238,18 @@ interface EditorContextType {
     action: "forward" | "backward" | "front" | "back",
   ) => void;
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  handleExport: () => void;
+  /** Store image in IndexedDB and return a session object URL. */
+  ingestImageFile: (file: File) => Promise<string>;
+  /** Assign a screen image to a specific device (or the active one). */
+  applyScreenImageFile: (
+    file: File,
+    target?: { screenshotId: string; deviceId: string },
+  ) => void;
+  /** Copy style from the active screen onto every other screen. */
+  applyStyleToAllScreens: (
+    kind: "background" | "layout" | "textStyle",
+  ) => void;
+  handleExport: () => Promise<void>;
   getBackgroundStyle: (screenshot: Screenshot) => string;
   resetEditor: () => void;
 }
@@ -405,12 +429,20 @@ const getInitialActiveProjectId = (projects: Project[]): string => {
   return projects[0]?.id || generateId();
 };
 
-export const EditorProvider = ({ children }: { children: ReactNode }) => {
+export const EditorProvider = ({
+  children,
+  initialTemplateId,
+}: {
+  children: ReactNode;
+  initialTemplateId?: TemplateId;
+}) => {
   // Project state
   const [projects, setProjects] = useState<Project[]>(getInitialProjects);
   const [activeProjectId, setActiveProjectId] = useState(() =>
     getInitialActiveProjectId(projects),
   );
+  const templateAppliedRef = useRef(false);
+  const imagesHydratedRef = useRef(false);
 
   // Get active project
   const activeProject =
@@ -419,6 +451,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   // Initialize state from persisted values or defaults
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [selectedDeviceId, setSelectedDeviceIdState] = useState(
     activeProject.selectedDeviceId,
   );
@@ -567,15 +601,43 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     setIsProjectDirty(true);
   }, [screenshots, selectedDeviceId, selectedColorId, exportSizeId, exportSizeIds]);
 
+  // Resolve idb: image refs from localStorage into object URLs for the canvas
+  useEffect(() => {
+    if (imagesHydratedRef.current) return;
+    imagesHydratedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const hydrated = await hydrateProjectsImages(projects);
+        if (cancelled) return;
+        skipDirtyRef.current = true;
+        setProjects(hydrated);
+        const active =
+          hydrated.find((p) => p.id === activeProjectId) ?? hydrated[0];
+        if (active) {
+          setScreenshotsState(active.screenshots);
+        }
+      } catch (err) {
+        console.warn("Image hydrate failed:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount
+  }, []);
+
+  // Only block tab close when a disk file is linked and dirty —
+  // browser autosave already covers unlinked projects.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!isProjectDirty) return;
+      if (!linkedFileName || !isProjectDirty) return;
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isProjectDirty]);
+  }, [isProjectDirty, linkedFileName]);
 
   // Auto-save projects to localStorage
   useEditorPersistence({
@@ -640,6 +702,14 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       }
       return [...prev, resolved];
     });
+  };
+  const applyExportPack = (sizeIds: string[]) => {
+    const resolved = [
+      ...new Set(sizeIds.map((id) => resolveExportSizeId(id))),
+    ];
+    if (resolved.length === 0) return;
+    setExportSizeIdState(resolved[0]);
+    setExportSizeIdsState(resolved);
   };
   const setScreenshots = (newScreenshots: Screenshot[]) => {
     pushHistory(newScreenshots);
@@ -743,8 +813,67 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [undo, redo]);
 
+  /** Warn before leaving a disk-linked project (switch / new). */
+  const confirmLeaveLinkedFile = (actionLabel: string): boolean => {
+    if (!linkedFileName) return true;
+    if (isProjectDirty) {
+      return window.confirm(
+        `You have unsaved changes to “${linkedFileName}”. ${actionLabel} anyway? The file link will be cleared — use Save first to keep your work.`,
+      );
+    }
+    return window.confirm(
+      `${actionLabel} will unlink “${linkedFileName}”. Continue?`,
+    );
+  };
+
+  const mountProject = (project: Project, flushedProjects: Project[]) => {
+    setProjects(flushedProjects);
+    setActiveProjectId(project.id);
+    setSelectedDeviceIdState(project.selectedDeviceId);
+    setSelectedColorIdState(project.selectedColorId);
+    setExportSizeIdState(resolveExportSizeId(project.exportSizeId));
+    setExportSizeIdsState(
+      project.exportSizeIds?.length
+        ? project.exportSizeIds.map(resolveExportSizeId)
+        : [resolveExportSizeId(project.exportSizeId)],
+    );
+    setScreenshotsState(project.screenshots);
+    setActiveScreenshotIdState(project.activeScreenshotId);
+    setSelectedElement(null);
+    historyPast.current = [];
+    historyFuture.current = [];
+    setHistoryTick((t) => t + 1);
+    clearLinkedFile();
+    markClean();
+  };
+
+  // Landing ?template=… → add a fresh project from that layout once
+  useEffect(() => {
+    if (!initialTemplateId || templateAppliedRef.current) return;
+    templateAppliedRef.current = true;
+    const templated = buildTemplateProject(initialTemplateId);
+    const flushed = projects.map((p) =>
+      p.id === activeProjectId
+        ? {
+            ...p,
+            screenshots,
+            selectedDeviceId,
+            selectedColorId,
+            exportSizeId,
+            exportSizeIds,
+            activeScreenshotId,
+            updatedAt: Date.now(),
+          }
+        : p,
+    );
+    mountProject(templated, [...flushed, templated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply once on mount
+  }, [initialTemplateId]);
+
   // Project management functions
   const createProject = (name: string) => {
+    if (!confirmLeaveLinkedFile("Creating a new project")) return;
+
     const newProject = createDefaultProject(name);
     // Flush current working copy, then append — avoid switchProject race
     // where React state has not yet included the new project.
@@ -762,20 +891,7 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
           }
         : p,
     );
-    setProjects([...flushed, newProject]);
-    setActiveProjectId(newProject.id);
-    setSelectedDeviceIdState(newProject.selectedDeviceId);
-    setSelectedColorIdState(newProject.selectedColorId);
-    setExportSizeIdState(resolveExportSizeId(newProject.exportSizeId));
-    setExportSizeIdsState(newProject.exportSizeIds);
-    setScreenshotsState(newProject.screenshots);
-    setActiveScreenshotIdState(newProject.activeScreenshotId);
-    setSelectedElement(null);
-    historyPast.current = [];
-    historyFuture.current = [];
-    setHistoryTick((t) => t + 1);
-    clearLinkedFile();
-    markClean();
+    mountProject(newProject, [...flushed, newProject]);
   };
 
   const renameProject = (id: string, name: string) => {
@@ -790,19 +906,42 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     // Don't delete the last project
     if (projects.length <= 1) return;
 
-    setProjects((prev) => prev.filter((p) => p.id !== id));
+    const target = projects.find((p) => p.id === id);
+    const ok = window.confirm(
+      `Delete “${target?.name ?? "this project"}”? This cannot be undone.`,
+    );
+    if (!ok) return;
 
-    // If deleting active project, switch to another
-    if (id === activeProjectId) {
-      const remaining = projects.filter((p) => p.id !== id);
-      if (remaining.length > 0) {
-        switchProject(remaining[0].id);
-      }
+    const remaining = projects.filter((p) => p.id !== id);
+    setProjects(remaining);
+
+    // If deleting active project, switch to another (skip unlink confirm —
+    // user already confirmed delete).
+    if (id === activeProjectId && remaining.length > 0) {
+      const next = remaining[0];
+      setActiveProjectId(next.id);
+      setSelectedDeviceIdState(next.selectedDeviceId);
+      setSelectedColorIdState(next.selectedColorId);
+      setExportSizeIdState(resolveExportSizeId(next.exportSizeId));
+      setExportSizeIdsState(
+        next.exportSizeIds?.length
+          ? next.exportSizeIds.map(resolveExportSizeId)
+          : [resolveExportSizeId(next.exportSizeId)],
+      );
+      setScreenshotsState(next.screenshots);
+      setActiveScreenshotIdState(next.activeScreenshotId);
+      setSelectedElement(null);
+      historyPast.current = [];
+      historyFuture.current = [];
+      setHistoryTick((t) => t + 1);
+      clearLinkedFile();
+      markClean();
     }
   };
 
   const switchProject = (id: string) => {
     if (id === activeProjectId) return;
+    if (!confirmLeaveLinkedFile("Switching projects")) return;
 
     // Flush working copy into projects BEFORE loading the other project
     // (async useEffect sync can race and drop screenshots).
@@ -1709,12 +1848,11 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addOverlayImage = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") addOverlayImageSource(result);
-    };
-    reader.readAsDataURL(file);
+    void ingestImageFile(file)
+      .then((src) => addOverlayImageSource(src))
+      .catch((err) => {
+        console.warn("Overlay image ingest failed:", err);
+      });
   };
 
   const addIcon = (src: string, name: string) => {
@@ -2048,30 +2186,157 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     removeDevice,
   ]);
 
+  const applyScreenImageFile = (
+    file: File,
+    target?: { screenshotId: string; deviceId: string },
+  ) => {
+    if (!file.type.startsWith("image/")) return;
+
+    const screenshotId = target?.screenshotId ?? activeScreenshotId;
+    const deviceId = target?.deviceId ?? activeDevice?.id;
+    if (!screenshotId || !deviceId) return;
+
+    void ingestImageFile(file)
+      .then((result) => {
+        setScreenshotsState((prev) => {
+          if (!skipHistory.current) {
+            historyPast.current.push({
+              screenshots: structuredClone(prev),
+            });
+            if (historyPast.current.length > 50) historyPast.current.shift();
+            historyFuture.current = [];
+            setHistoryTick((t) => t + 1);
+          }
+          return prev.map((s) => {
+            if (s.id !== screenshotId) return s;
+            return {
+              ...s,
+              activeDeviceId: deviceId,
+              devices: s.devices.map((device) =>
+                device.id === deviceId
+                  ? { ...device, screenshotSrc: result }
+                  : device,
+              ),
+            };
+          });
+        });
+        setSelectedElement({
+          type: "device",
+          id: deviceId,
+          screenshotId,
+        });
+        if (activeScreenshotId !== screenshotId) {
+          setActiveScreenshotId(screenshotId);
+        }
+      })
+      .catch((err) => {
+        console.warn("Screen image ingest failed:", err);
+      });
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !activeDevice) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        updateActiveScreenshot({
-          devices: activeScreenshot.devices.map((device) =>
-            device.id === activeDevice.id
-              ? { ...device, screenshotSrc: result }
-              : device,
-          ),
-        });
-      }
-    };
-    reader.readAsDataURL(file);
+    if (!file) return;
+    applyScreenImageFile(file);
     event.target.value = "";
+  };
+
+  const applyStyleToAllScreens = (
+    kind: "background" | "layout" | "textStyle",
+  ) => {
+    if (screenshots.length <= 1) return;
+
+    const source = activeScreenshot;
+    const sourceDevice =
+      source.devices.find((d) => d.id === source.activeDeviceId) ??
+      source.devices[0] ??
+      null;
+
+    setScreenshotsState((prev) => {
+      if (!skipHistory.current) {
+        historyPast.current.push({
+          screenshots: structuredClone(prev),
+        });
+        if (historyPast.current.length > 50) historyPast.current.shift();
+        historyFuture.current = [];
+        setHistoryTick((t) => t + 1);
+      }
+
+      return prev.map((shot) => {
+        if (shot.id === source.id) return shot;
+
+        if (kind === "background") {
+          return {
+            ...shot,
+            backgroundColor: source.backgroundColor,
+            backgroundMode: source.backgroundMode,
+            gradientPresetId: source.gradientPresetId,
+            customGradient: source.customGradient
+              ? { ...source.customGradient }
+              : null,
+            backgroundImage: source.backgroundImage,
+          };
+        }
+
+        if (kind === "layout" && sourceDevice) {
+          return {
+            ...shot,
+            devices: shot.devices.map((device) => ({
+              ...device,
+              scale: sourceDevice.scale,
+              x: sourceDevice.x,
+              y: sourceDevice.y,
+              rotation: sourceDevice.rotation,
+              style: sourceDevice.style,
+              rotateX: sourceDevice.rotateX,
+              rotateY: sourceDevice.rotateY,
+              shadow: { ...sourceDevice.shadow },
+            })),
+          };
+        }
+
+        if (kind === "textStyle") {
+          const sourceTexts = source.texts ?? [];
+          const texts = (shot.texts ?? []).map((text, index) => {
+            const from = sourceTexts[index] ?? sourceTexts[0];
+            if (!from) return text;
+            return {
+              ...text,
+              color: from.color,
+              fontFamily: from.fontFamily,
+              fontSize: from.fontSize,
+              align: from.align,
+              uppercase: from.uppercase,
+              fontWeight: from.fontWeight,
+            };
+          });
+          return {
+            ...shot,
+            texts,
+            textColor: source.textColor,
+            fontFamily: source.fontFamily,
+            headlineFontFamily: source.headlineFontFamily,
+            subheadlineFontFamily: source.subheadlineFontFamily,
+            headlineFontSize: source.headlineFontSize,
+            subheadlineFontSize: source.subheadlineFontSize,
+            headlineColor: source.headlineColor,
+            subheadlineColor: source.subheadlineColor,
+          };
+        }
+
+        return shot;
+      });
+    });
   };
 
   const getBackgroundStyle = (screenshot: Screenshot) =>
     getBackgroundCss(screenshot);
 
-  const handleExport = () => {
+  const dismissExportError = () => setExportError(null);
+
+  const handleExport = async () => {
+    if (isExporting) return;
+
     const sizesToExport = exportSizeIds
       .map((id) => exportSizes.find((s) => s.id === id))
       .filter((s): s is ExportSize => Boolean(s));
@@ -2082,18 +2347,43 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
           ? [exportSize]
           : [];
 
-    void exportScreenshots({
-      screenshots,
-      exportSizes: unique,
-      designWidth: exportSize.width,
-    });
-    setIsExportSuccessOpen(true);
+    if (unique.length === 0) {
+      setExportError("Select at least one export size.");
+      return;
+    }
+
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const materialized = await materializeProjectImages(
+        snapshotActiveProject(),
+      );
+      await exportScreenshots({
+        screenshots: materialized.screenshots,
+        exportSizes: unique,
+        designWidth: exportSize.width,
+      });
+      setIsExportSuccessOpen(true);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Export failed. Please try again.";
+      setExportError(message);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   /**
    * Resets the editor to default state and clears localStorage
    */
   const resetEditor = () => {
+    const ok = window.confirm(
+      "Reset the editor and clear all projects from this browser? This cannot be undone.",
+    );
+    if (!ok) return;
+
     clearPersistedState();
     const defaultProject = createDefaultProject();
     setProjects([defaultProject]);
@@ -2106,6 +2396,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     setActiveScreenshotIdState(defaultProject.activeScreenshotId);
     setSelectedElement(null);
     setIsExportSuccessOpen(false);
+    clearLinkedFile();
+    markClean();
     historyPast.current = [];
     historyFuture.current = [];
     setHistoryTick((t) => t + 1);
@@ -2137,6 +2429,9 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         setIsFontPickerOpen,
         isExportSuccessOpen,
         setIsExportSuccessOpen,
+        isExporting,
+        exportError,
+        dismissExportError,
         selectedDeviceId,
         setSelectedDeviceId,
         selectedColorId,
@@ -2145,6 +2440,7 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         setExportSizeId,
         exportSizeIds,
         toggleExportSizeId,
+        applyExportPack,
         screenshots,
         setScreenshots,
         activeScreenshotId,
@@ -2215,6 +2511,9 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         sendImageToBack,
         moveElementLayer,
         handleFileUpload,
+        ingestImageFile,
+        applyScreenImageFile,
+        applyStyleToAllScreens,
         handleExport,
         getBackgroundStyle,
         resetEditor,

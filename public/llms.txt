@@ -1,161 +1,106 @@
 # AppShots App Store Screenshot Generator
 
-> AppShots is a free, open-source web tool for creating professional, high-converting screenshots for the Apple App Store and Google Play Store. It provides a full-featured drag-and-drop editor with multi-device layouts, cross-screen compositions, rich text highlights, overlays, and batch export.
+> AppShots is a free, open-source web tool for creating professional screenshots for the Apple App Store and Google Play Store. Drag-and-drop editor with multi-device layouts, cross-screen compositions, rich text, overlays, `.appshots` project files, and batch export.
 
 Website: https://appshots.appstate.xyz
-GitHub: https://github.com/oyeolamilekan/appshots
+GitHub: https://github.com/BabiMumba/appshots
 License: MIT
 
 ## What AppShots Does
 
-AppShots lets mobile developers and marketers design polished app store screenshots entirely in the browser. Users select a device frame, upload their app screenshot, add text and decorations, and export pixel-perfect images at the required App Store or Play Store resolutions. Everything runs client-side — no server uploads, no accounts, no watermarks.
+AppShots lets mobile developers and marketers design polished store screenshots entirely in the browser. Select a device frame, upload app screens, add text and decorations, and export pixel-perfect PNGs (or a ZIP of multiple sizes). Everything runs client-side — no server uploads, no accounts, no watermarks.
 
 ## Core Features
 
 ### Device Frames
-- 6 realistic device mockups: iPhone 15 Pro Max, iPhone 15 Pro, iPhone 14, iPad Pro 12.9", Samsung Galaxy S24 Ultra, Samsung Galaxy Tab S9
-- Multiple color options per device (Black Titanium, Natural, Blue, White, Midnight, Purple, Red, Space Gray, Silver, Titanium Violet, Titanium Yellow, Graphite, Beige)
-- Multiple independent devices inside a single screenshot
+- Realistic mockups including iPhone 17 Pro Max / Pro / 17, iPhone 15 Pro Max / Pro, iPhone 14, iPad Pro 12.9", Pixel 9 / 9 Pro, Samsung Galaxy S24 Ultra, Samsung Galaxy Tab S9
+- Multiple frame colors per device
+- Multiple independent devices per screenshot
 - Cross-screen device overflow between adjacent screenshots
-- Flat (2D) and 3D rendering modes
-- 3D rotation controls for Rotate Y and Rotate X
+- Flat (2D) and 3D rendering modes with rotation controls
 - Accurate camera elements (Dynamic Island, notch, punch-hole)
 
 ### Backgrounds
-- Solid color backgrounds with a full color picker
-- 6 gradient presets: Sunset, Ocean, Mint, Berry, Royal, Rose
-- Global text color picker
+- Solid color, gradient presets (Sunset, Ocean, Mint, Berry, Royal, Rose), custom gradients, and background images
 
 ### Rich Text & Fonts
-- Rich text editor for headlines and subheadlines with bold, italic, underline, text color, alignment, and text background highlights
-- Rounded highlight styling preserved in the editor, preview, and export
-- Google Fonts integration with search and preview
-- Independent font size sliders for headline and subheadline
-- Width control for text blocks
-- Drag-to-reposition text anywhere on the canvas
+- Unlimited text overlays with rich formatting (bold, italic, underline, color, alignment, highlights)
+- Google Fonts integration
+- Drag-to-reposition and resize on canvas
+- Inline editing on the canvas
 
 ### Overlay Images
-- Unlimited overlay images (badges, logos, arrows, decorations)
-- Drag-to-reposition and resize with width percentage control
-- Per-image rotation control
-- Layer management: behind device, in front, bring forward/backward/to-front/to-back
-- Per-image shadow with color, blur, and offset controls
+- Upload badges, logos, decorations; laurel stickers in Overlays
+- Drag, resize, rotate, layer order, per-image shadow
 
 ### Layout & Positioning
-- 8 position presets: Centered, Bleed Bottom, Bleed Top, Float Center, Float Bottom, Tilt Left, Tilt Right, Perspective
-- Device size slider (scale %)
-- Device vertical position slider (offset %)
-- Device rotation (flat) or 3D rotation (3D mode)
-- Device shadow toggle with color, blur, and vertical offset
+- Position presets, scale, offset, flat/3D rotation, device shadow
+- Screen image zoom and pan inside the device
 
 ### Project Management
-- Multiple projects: create, rename, switch, delete
-- Auto-save to localStorage across sessions
-- Reset to defaults
+- Multiple projects: create, rename, switch, delete (with confirms)
+- Autosave to localStorage
+- Open / Save / Save as `.appshots` project files (Chrome/Edge can overwrite linked files with Ctrl+S)
+- Dirty indicator only when a disk file is linked and unsaved
 
 ### Export
-- Batch export: all screenshots at once (ZIP for multiple, PNG for single)
-- 4 export size presets: 6.7" iPhone (1284×2778), 6.5" iPhone (1242×2688), 5.5" iPhone (1242×2208), 12.9" iPad Pro (2048×2732)
-- Full 3D support preserved in exports
-- Cross-screen device overflow preserved in exports
-- Pixel-perfect output matching on-screen preview
-- Post-export GitHub star modal with a direct repository link
+- Batch export: ZIP for multiple files, PNG for a single file
+- Full App Store + Google Play size matrix (required and optional slots, including Play feature graphic)
+- Loading state while exporting; success modal only after download completes
+- Post-export success modal with optional project rename
+- Cross-screen overflow and 3D preserved in exports
 
 ### Editor Experience
-- Multi-screenshot gallery with horizontal carousel
-- Real-time preview with instant updates
-- Drag-and-drop repositioning for all elements
-- Click-to-select with visual feedback for text, devices, and overlay images
-- Device manager for adding, selecting, reordering, and removing devices
-- Dark mode UI
+- Multi-screenshot gallery
+- Empty device CTA: upload or drop an image onto the frame
+- Undo/redo, keyboard delete/nudge, context menus
+- Dark editor UI
 
 ## Tech Stack
 
-- React 19
-- TanStack Router (file-based routing)
-- Tailwind CSS 4
-- Lucide React (icons)
-- shadcn/ui (UI components)
-- Vite 7 (build tool)
-- Vitest (testing)
-- Bun (runtime)
-- JSZip (batch export)
-- Canvas API (screenshot rendering and export)
+- React 19, TanStack Router, Tailwind CSS 4, Lucide React
+- Vite 7, Vitest, Bun
+- JSZip, Canvas API
+- No shadcn/ui — custom components under `src/components`
 
 ## Architecture
 
-AppShots is a single-page application. All state is managed client-side with React Context (EditorContext) and persisted to localStorage.
+Single-page editor. State in `EditorContext`, autosaved to localStorage. Optional `.appshots` ZIP for portable projects.
 
 ### Key Modules
-- `EditorContext` — Global editor state: active project, screenshots, device selection, font settings
-- `CanvasPreview` — Main canvas rendering screenshots, device containers, overlays
-- `DeviceFrame` — Device mockup rendering in flat 2D and 3D with edges
-- `device-instances` — Device instance helpers and legacy normalization
-- `device-overflow` — Cross-screen device overflow calculations
-- `FontPicker` — Google Fonts search, preview, and selection
-- `GitHubStarModal` — Post-export GitHub star modal
-- `LeftSidebar` — Device picker, color picker, export controls
-- `RightSidebar` — Layout, appearance, content, and overlay controls
-- `RichTextEditor` — Rich text formatting toolbar
-- `ProjectSwitcher` — Project management UI
-- `export-utils` — Canvas-based screenshot export supporting flat and 3D
-- `google-fonts` — Google Fonts API loader
-- `rich-text-canvas` — Rich text rendering for canvas export
-
-### Data Model
-- **Project**: Contains a name, device selection, export size, and a list of Screenshots
-- **Screenshot**: Headline, subheadline, background settings, text positions, font family, overlay images, and a list of DeviceInstances
-- **DeviceInstance**: Independent device image, model, color, position, scale, rotation, shadow, flat/3D style, and 3D angles
-- **ImageOverlay**: Positioned image with layer ordering, rotation, and shadow
-- **DeviceSpec**: Device dimensions, screen inset, corner radius, notch/island info, available colors
-
-## Typical Workflow
-
-1. Select a device from the left sidebar
-2. Choose a device frame color
-3. Upload an app screenshot to display inside the device
-4. Add more devices for multi-device layouts
-5. Edit headline and subheadline text using the rich text editor
-6. Pick a font from Google Fonts
-7. Set background color or gradient
-8. Position the device with presets or manual controls
-9. Optionally switch to 3D mode and adjust rotation
-10. Drag devices across screenshot edges for continuous layouts
-11. Add overlay images (badges, logos)
-12. Add more screenshots to the carousel for a complete set
-13. Export all screenshots at App Store resolution
-
-## API / Integration Points
-
-AppShots is entirely client-side. There are no backend APIs. Data flows:
-- Google Fonts API — loads font metadata and stylesheets
-- Canvas API — renders and exports screenshots as PNG
-- localStorage — persists projects and settings
-- JSZip — bundles multiple screenshots into a ZIP file for download
+- `EditorContext` — projects, screenshots, selection, save/export
+- `CanvasPreview` — canvas, cards, devices, overlays, text
+- `DeviceFrame` / `DeviceFrame3D` — mockups
+- `device-overflow` — cross-screen layout math
+- `export-utils` — PNG/ZIP export
+- `project-file` — `.appshots` IO + File System Access
+- `ExportSuccessModal` — post-export rename/success
+- `LeftSidebar` / `RightSidebar` / `ProjectSwitcher`
 
 ## Running Locally
 
-Prerequisites: Bun (recommended) or Node.js 18+
-
 ```
-git clone https://github.com/oyeolamilekan/appshots.git
-cd app-screenshot-generator
+git clone https://github.com/BabiMumba/appshots.git
+cd appshots
 bun install
 bun run dev
 ```
 
 Available at http://localhost:5173
 
-## Export Sizes Reference
+## Export Sizes (examples)
 
-| Preset | Dimensions | Use Case |
-|--------|-----------|----------|
-| 6.7" | 1284 × 2778 | iPhone 13/12 Pro Max |
-| 6.5" | 1242 × 2688 | iPhone 11 Pro Max |
-| 5.5" | 1242 × 2208 | iPhone 8 Plus |
-| 12.9" | 2048 × 2732 | iPad Pro |
+| Preset | Dimensions | Store |
+|--------|-----------|-------|
+| iOS DI medium (required) | 1206 × 2622 | App Store |
+| iOS DI medium | 1179 × 2556 | App Store |
+| iOS DI large | 1320 × 2868 | App Store |
+| iPad 13″ | 2064 × 2752 | App Store |
+| Play phone (recommended) | 1080 × 1920 | Google Play |
+| Play feature graphic | 1024 × 500 | Google Play |
+
+See `src/constants.ts` `exportSizes` for the full matrix.
 
 ## Contributing
 
-Fork → create feature branch → commit → push → open Pull Request.
-See CONTRIBUTING guidelines in the repository.
+Fork → feature branch → commit → push → open Pull Request.

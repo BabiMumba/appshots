@@ -78,6 +78,14 @@ export const STYLES = {
   select:
     "w-full bg-[#2a2a2a] hover:bg-[#333] text-white text-sm rounded-md px-3 py-2 border border-transparent hover:border-white/10 outline-none focus:ring-1 focus:ring-white cursor-pointer",
 
+  /** Color swatch row */
+  colorPicker: "flex flex-wrap gap-2",
+
+  /** Color swatch button */
+  colorButton: "w-7 h-7 rounded-full border-2 transition-all",
+  colorButtonActive: "border-white scale-110",
+  colorButtonInactive: "border-transparent hover:border-white/30",
+
   /** Gradient preset button */
   gradientButton: "h-6 rounded-md",
 

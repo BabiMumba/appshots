@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@500;700&family=Syne:wght@700;800&display=swap");
 @import "tailwindcss";
 
 body {
@@ -7,6 +8,61 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.landing-root {
+  position: relative;
+  overflow-x: hidden;
+  background: #0a0c0b;
+  font-family: "Outfit", system-ui, sans-serif;
+}
+
+.landing-atmosphere {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 55% at 10% -10%, rgba(200, 245, 66, 0.16), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 90% 20%, rgba(45, 212, 191, 0.12), transparent 50%),
+    linear-gradient(180deg, #0a0c0b 0%, #121816 45%, #0a0c0b 100%);
+}
+
+.landing-brand {
+  font-family: "Syne", "Outfit", system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.landing-hero-copy {
+  animation: landing-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-hero-visual {
+  animation: landing-rise 900ms 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-hero-image {
+  border-radius: 1.25rem;
+  box-shadow:
+    0 40px 100px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: perspective(1200px) rotateY(-6deg) rotateX(2deg);
+  transition: transform 500ms ease;
+}
+
+.landing-hero-visual:hover .landing-hero-image {
+  transform: perspective(1200px) rotateY(-2deg) rotateX(0deg);
+}
+
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 code {

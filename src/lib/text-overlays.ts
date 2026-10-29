@@ -43,7 +43,7 @@ export const createDefaultTexts = (opts?: {
   createTextOverlay({
     content:
       opts?.subheadline ??
-      "Create stunning App Store screenshots in minutes. Customizable templates, devices, and backgrounds.",
+      "Create stunning App Store screenshots in minutes. Devices, backgrounds, and overlays — ready for the store.",
     x: 50,
     y: 18,
     width: 80,

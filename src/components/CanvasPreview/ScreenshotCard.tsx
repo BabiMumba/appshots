@@ -52,6 +52,11 @@ interface ScreenshotCardProps {
     id: string,
   ) => void;
   onDeviceDoubleClick: (screenshotId: string, deviceId: string) => void;
+  onScreenImageFile: (
+    file: File,
+    screenshotId: string,
+    deviceId: string,
+  ) => void;
   editingTextId: string | null;
   onTextDoubleClick: (textId: string) => void;
   onTextContentChange: (textId: string, html: string) => void;
@@ -84,6 +89,7 @@ export const ScreenshotCard = ({
   onResizeStart,
   onRotateStart,
   onDeviceDoubleClick,
+  onScreenImageFile,
   editingTextId,
   onTextDoubleClick,
   onTextContentChange,
@@ -221,6 +227,7 @@ export const ScreenshotCard = ({
     <div
       ref={setCardRef}
       data-screenshot-card="true"
+      data-screenshot-id={screenshot.id}
       onClick={handleCardClick}
       onMouseUp={onElementMouseUp}
       onMouseDown={handleBackgroundMouseDown}
@@ -390,6 +397,12 @@ export const ScreenshotCard = ({
                 }
                 onDoubleClick={() =>
                   onDeviceDoubleClick(ownerScreenshotId, device.id)
+                }
+                onScreenImageFile={
+                  device.screenshotSrc
+                    ? undefined
+                    : (file) =>
+                        onScreenImageFile(file, ownerScreenshotId, device.id)
                 }
                 onContextMenu={(e) =>
                   onElementContextMenu(

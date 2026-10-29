@@ -592,6 +592,35 @@ export const exportSizes: ExportSize[] = [
 
 export const DEFAULT_EXPORT_SIZE_ID = "ios-di-medium-1206";
 
+/** One-click sets of export sizes for common store workflows */
+export type ExportPack = {
+  id: string;
+  label: string;
+  description: string;
+  sizeIds: string[];
+};
+
+export const exportPacks: ExportPack[] = [
+  {
+    id: "ios-required",
+    label: "iOS required",
+    description: "App Store required iPhone slots",
+    sizeIds: ["ios-di-medium-1206", "ios-di-medium-1179"],
+  },
+  {
+    id: "play-phone",
+    label: "Play phone",
+    description: "Google Play phone recommended",
+    sizeIds: ["play-phone-1080"],
+  },
+  {
+    id: "ios-ipad",
+    label: "iOS + iPad",
+    description: "Required iPhone + iPad 13″",
+    sizeIds: ["ios-di-medium-1206", "ios-di-medium-1179", "ios-ipad-13-2064"],
+  },
+];
+
 export function resolveExportSizeId(id: string | undefined | null): string {
   if (!id) return DEFAULT_EXPORT_SIZE_ID;
   const mapped = LEGACY_EXPORT_SIZE_MAP[id] ?? id;

@@ -34,6 +34,7 @@ interface DeviceContainerProps {
   onRotateStart?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
+  onScreenImageFile?: (file: File) => void;
   shadowScale?: number;
 }
 
@@ -55,6 +56,7 @@ export const DeviceContainer = ({
   onRotateStart,
   onContextMenu,
   onDoubleClick,
+  onScreenImageFile,
   shadowScale = 1,
 }: DeviceContainerProps) => {
   const is3D = device.style === "3d";
@@ -101,12 +103,18 @@ export const DeviceContainer = ({
             device={device}
             selectedDevice={selectedDevice}
             selectedColor={selectedColor}
+            onScreenImageFile={
+              isInteractive ? onScreenImageFile : undefined
+            }
           />
         ) : (
           <DeviceFrame
             device={device}
             selectedDevice={selectedDevice}
             selectedColor={selectedColor}
+            onScreenImageFile={
+              isInteractive ? onScreenImageFile : undefined
+            }
           />
         )}
         {isSelected && isInteractive && showHandles && (

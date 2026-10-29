@@ -76,8 +76,8 @@ export const ExportSuccessModal = ({
               </h2>
               <p className="mt-1 text-sm text-zinc-400 leading-relaxed">
                 {screenshotCount} screenshot
-                {screenshotCount !== 1 ? "s" : ""} downloaded. Looking sharp —
-                ready for the store.
+                {screenshotCount !== 1 ? "s" : ""} saved to your downloads.
+                Looking sharp — ready for the store.
               </p>
             </div>
           </div>

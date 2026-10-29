@@ -1194,24 +1194,44 @@ export const exportScreenshots = async ({
         ? [exportSize]
         : [];
 
-  if (sizes.length === 0) return;
+  if (sizes.length === 0) {
+    throw new Error("Select at least one export size.");
+  }
+
+  if (screenshots.length === 0) {
+    throw new Error("Add at least one screenshot before exporting.");
+  }
 
   const baseWidth = designWidth || exportSize?.width || sizes[0].width;
   const exportedFiles: { name: string; data: string }[] = [];
 
-  for (const size of sizes) {
-    const files = await exportOneSize({
-      screenshots,
-      exportSize: size,
-      designWidth: baseWidth,
-    });
-    exportedFiles.push(...files);
+  try {
+    for (const size of sizes) {
+      const files = await exportOneSize({
+        screenshots,
+        exportSize: size,
+        designWidth: baseWidth,
+      });
+      exportedFiles.push(...files);
+    }
+  } catch (err) {
+    if (err instanceof Error) throw err;
+    throw new Error("Failed to render screenshots for export.");
   }
 
-  if (exportedFiles.length === 1 && sizes.length === 1) {
-    const singleName = getExportFilename(sizes[0], 0, 1);
-    downloadFile(exportedFiles[0].data, singleName);
-  } else if (exportedFiles.length >= 1) {
-    await downloadAsZip(exportedFiles, getExportZipName(sizes));
+  if (exportedFiles.length === 0) {
+    throw new Error("Nothing was exported. Check your screenshots and try again.");
+  }
+
+  try {
+    if (exportedFiles.length === 1 && sizes.length === 1) {
+      const singleName = getExportFilename(sizes[0], 0, 1);
+      downloadFile(exportedFiles[0].data, singleName);
+    } else {
+      await downloadAsZip(exportedFiles, getExportZipName(sizes));
+    }
+  } catch (err) {
+    if (err instanceof Error) throw err;
+    throw new Error("Download failed. Check your browser permissions and try again.");
   }
 };

@@ -2,7 +2,7 @@
  * CanvasPreview — main editing surface.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor } from "../../context/EditorContext";
 import {
   gapPercentFromCardWidth,
@@ -11,6 +11,7 @@ import {
   PREVIEW_SCREEN_GAP_PX,
 } from "../../lib/device-overflow";
 import { Toolbar } from "./Toolbar";
+import { Filmstrip } from "./Filmstrip";
 import { ScreenshotCard } from "./ScreenshotCard";
 import { TextFormatBar } from "./TextFormatBar";
 import { useResizeObserver } from "./useResizeObserver";
@@ -68,6 +69,7 @@ export const CanvasPreview = () => {
     activeScreenshot,
     moveElementLayer,
     fileInputRef,
+    applyScreenImageFile,
     inlineEditing,
     startInlineEditing,
     stopInlineEditing,
@@ -105,6 +107,18 @@ export const CanvasPreview = () => {
     onResize: updatePreviewGap,
     deps: [exportSize.id, screenshots.length],
   });
+
+  // Keep the active screenshot card in view when switching via filmstrip / keys
+  useEffect(() => {
+    const card = screensRowRef.current?.querySelector<HTMLElement>(
+      `[data-screenshot-id="${activeScreenshotId}"]`,
+    );
+    card?.scrollIntoView({
+      behavior: "smooth",
+      inline: "nearest",
+      block: "nearest",
+    });
+  }, [activeScreenshotId]);
 
   const activeIndex = screenshots.findIndex((s) => s.id === activeScreenshotId);
 
@@ -244,6 +258,18 @@ export const CanvasPreview = () => {
         screenshotCount={screenshots.length}
       />
 
+      <Filmstrip
+        screenshots={screenshots}
+        activeScreenshotId={activeScreenshotId}
+        exportAspect={exportSize.width / exportSize.height}
+        onSelect={(id) => {
+          if (id === activeScreenshotId) return;
+          stopInlineEditing();
+          setActiveScreenshotId(id);
+          setContextMenu(null);
+        }}
+      />
+
       <div className="h-12 shrink-0 border-b border-white/10 bg-[#161616]">
         {selectedText && selectedElement && selectedTextId ? (
           <TextFormatBar
@@ -359,6 +385,9 @@ export const CanvasPreview = () => {
                   window.setTimeout(() => {
                     fileInputRef.current?.click();
                   }, 50);
+                }}
+                onScreenImageFile={(file, screenshotId, deviceId) => {
+                  applyScreenImageFile(file, { screenshotId, deviceId });
                 }}
                 editingTextId={
                   inlineEditing?.screenshotId === screenshot.id

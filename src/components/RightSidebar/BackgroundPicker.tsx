@@ -5,6 +5,7 @@
 import { useRef } from "react";
 import type { Screenshot, GradientPreset, CustomGradient } from "../../types";
 import { DEFAULT_CUSTOM_GRADIENT } from "../../lib/gradient-style";
+import { useEditor } from "../../context/EditorContext";
 import { STYLES } from "./constants";
 
 interface BackgroundPickerProps {
@@ -18,6 +19,7 @@ export const BackgroundPicker = ({
   gradientPresets,
   onUpdateScreenshot,
 }: BackgroundPickerProps) => {
+  const { ingestImageFile } = useEditor();
   const fileRef = useRef<HTMLInputElement>(null);
   const custom: CustomGradient =
     screenshot.customGradient ?? DEFAULT_CUSTOM_GRADIENT;
@@ -35,16 +37,16 @@ export const BackgroundPicker = ({
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
+    void ingestImageFile(file)
+      .then((src) => {
         onUpdateScreenshot({
           backgroundMode: "image",
-          backgroundImage: reader.result,
+          backgroundImage: src,
         });
-      }
-    };
-    reader.readAsDataURL(file);
+      })
+      .catch((err) => {
+        console.warn("Background image ingest failed:", err);
+      });
     e.target.value = "";
   };
 

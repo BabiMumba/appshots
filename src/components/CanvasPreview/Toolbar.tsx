@@ -61,10 +61,11 @@ export const Toolbar = ({
     </button>
     <button
       onClick={onDuplicateScreenshot}
+      title="Duplicate the active screen"
       className="flex items-center gap-1.5 bg-[#2a2a2a] hover:bg-[#333] text-gray-200 text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
     >
       <Copy className="w-4 h-4" />
-      Duplicate
+      Duplicate screen
     </button>
 
     <div className="w-px h-6 bg-white/10" />

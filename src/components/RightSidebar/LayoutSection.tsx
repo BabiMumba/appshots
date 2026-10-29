@@ -7,16 +7,21 @@ import { SidebarSection } from "./SidebarSection";
 import { RangeSlider } from "./RangeSlider";
 import { PositionPresets } from "./PositionPresets";
 import { Toggle } from "./Toggle";
+import { ApplyToAllButton } from "./ApplyToAllButton";
 import { SLIDER_RANGES, STYLES } from "./constants";
 
 interface LayoutSectionProps {
   device: DeviceInstance;
   onUpdateDevice: (updates: Partial<DeviceInstance>) => void;
+  canApplyToAll?: boolean;
+  onApplyToAll?: () => void;
 }
 
 export const LayoutSection = ({
   device,
   onUpdateDevice,
+  canApplyToAll = false,
+  onApplyToAll,
 }: LayoutSectionProps) => {
   const is3D = device.style === "3d";
 
@@ -107,6 +112,14 @@ export const LayoutSection = ({
             </div>
           )}
         </div>
+
+        {onApplyToAll && (
+          <ApplyToAllButton
+            label="Apply layout to all screens"
+            disabled={!canApplyToAll}
+            onClick={onApplyToAll}
+          />
+        )}
       </div>
     </SidebarSection>
   );

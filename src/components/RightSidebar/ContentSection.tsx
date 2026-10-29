@@ -7,13 +7,20 @@ import type { Screenshot } from "../../types";
 import { useEditor } from "../../context/EditorContext";
 import { SidebarSection } from "./SidebarSection";
 import { RichTextEditor } from "../RichTextEditor";
+import { ApplyToAllButton } from "./ApplyToAllButton";
 
 interface ContentSectionProps {
   screenshot: Screenshot;
   onUpdateScreenshot: (updates: Partial<Screenshot>) => void;
+  canApplyToAll?: boolean;
+  onApplyToAll?: () => void;
 }
 
-export const ContentSection = ({ screenshot }: ContentSectionProps) => {
+export const ContentSection = ({
+  screenshot,
+  canApplyToAll = false,
+  onApplyToAll,
+}: ContentSectionProps) => {
   const {
     contentFocusRequest,
     clearContentFocusRequest,
@@ -59,6 +66,13 @@ export const ContentSection = ({ screenshot }: ContentSectionProps) => {
         >
           + Add text
         </button>
+        {onApplyToAll && (
+          <ApplyToAllButton
+            label="Apply text style to all screens"
+            disabled={!canApplyToAll}
+            onClick={onApplyToAll}
+          />
+        )}
       </SidebarSection>
     );
   }
@@ -75,6 +89,13 @@ export const ContentSection = ({ screenshot }: ContentSectionProps) => {
           placeholder="Enter text..."
         />
       </div>
+      {onApplyToAll && (
+        <ApplyToAllButton
+          label="Apply text style to all screens"
+          disabled={!canApplyToAll}
+          onClick={onApplyToAll}
+        />
+      )}
     </SidebarSection>
   );
 };

@@ -1,36 +1,27 @@
 /**
- * LeftSidebar Component
- *
- * Main sidebar containing project switcher, device selection and export options.
+ * LeftSidebar — projects + export only (device controls live on the right).
  */
 
 import { useEditor } from "../../context/EditorContext";
-import { devices, exportSizes } from "../../constants";
+import { exportPacks, exportSizes } from "../../constants";
 import { SidebarHeader } from "./SidebarHeader";
-import { DeviceSection } from "./DeviceSection";
 import { ExportSection } from "./ExportSection";
 import { ProjectSwitcher } from "../ProjectSwitcher";
 import { STYLES } from "./constants";
 
 export const LeftSidebar = () => {
   const {
-    selectedDeviceId,
-    setSelectedDeviceId,
-    selectedColorId,
-    setSelectedColorId,
-    selectedDevice,
     exportSizeId,
     setExportSizeId,
     exportSizeIds,
     toggleExportSizeId,
+    applyExportPack,
     handleExport,
     screenshots,
+    isExporting,
+    exportError,
+    dismissExportError,
   } = useEditor();
-
-  const handleDeviceSelect = (deviceId: string, defaultColorId: string) => {
-    setSelectedDeviceId(deviceId);
-    setSelectedColorId(defaultColorId);
-  };
 
   return (
     <aside className={STYLES.sidebar}>
@@ -41,23 +32,19 @@ export const LeftSidebar = () => {
       </div>
 
       <div className={STYLES.content}>
-        <DeviceSection
-          devices={devices}
-          selectedDeviceId={selectedDeviceId}
-          selectedColorId={selectedColorId}
-          selectedDevice={selectedDevice}
-          onDeviceSelect={handleDeviceSelect}
-          onColorSelect={setSelectedColorId}
-        />
-
         <ExportSection
           exportSizes={exportSizes}
+          exportPacks={exportPacks}
           selectedSizeId={exportSizeId}
           selectedSizeIds={exportSizeIds}
-          screenshotCount={screenshots.length}
+          screenshots={screenshots}
+          isExporting={isExporting}
+          exportError={exportError}
           onSizeSelect={setExportSizeId}
           onToggleExtraSize={toggleExportSizeId}
+          onApplyPack={applyExportPack}
           onExport={handleExport}
+          onDismissError={dismissExportError}
         />
       </div>
     </aside>

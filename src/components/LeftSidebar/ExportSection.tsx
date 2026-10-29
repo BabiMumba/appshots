@@ -1,19 +1,26 @@
 /**
- * ExportSection — preview size + optional multi-export, then export.
+ * ExportSection — preview size, store packs, multi-export, then export.
  */
 
-import type { ExportSize } from "../../types";
+import type { ExportSize, Screenshot } from "../../types";
+import type { ExportPack } from "../../constants";
+import { runExportPreflight } from "../../lib/export-preflight";
 import { SidebarSection } from "./SidebarSection";
 import { STYLES } from "./constants";
 
 interface ExportSectionProps {
   exportSizes: ExportSize[];
+  exportPacks: ExportPack[];
   selectedSizeId: string;
   selectedSizeIds: string[];
-  screenshotCount: number;
+  screenshots: Screenshot[];
+  isExporting?: boolean;
+  exportError?: string | null;
   onSizeSelect: (sizeId: string) => void;
   onToggleExtraSize: (sizeId: string) => void;
+  onApplyPack: (sizeIds: string[]) => void;
   onExport: () => void;
+  onDismissError?: () => void;
 }
 
 function groupSizes(sizes: ExportSize[]): Map<string, ExportSize[]> {
@@ -28,16 +35,31 @@ function groupSizes(sizes: ExportSize[]): Map<string, ExportSize[]> {
 
 export const ExportSection = ({
   exportSizes,
+  exportPacks,
   selectedSizeId,
   selectedSizeIds,
-  screenshotCount,
+  screenshots,
+  isExporting = false,
+  exportError = null,
   onSizeSelect,
   onToggleExtraSize,
+  onApplyPack,
   onExport,
+  onDismissError,
 }: ExportSectionProps) => {
   const groups = groupSizes(exportSizes);
   const selected = exportSizes.find((s) => s.id === selectedSizeId);
   const exportCount = Math.max(selectedSizeIds.length, 1);
+  const screenshotCount = screenshots.length;
+  const fileCount = screenshotCount * exportCount;
+  const selectedSizes = exportSizes.filter((s) =>
+    selectedSizeIds.includes(s.id),
+  );
+  const preflight = runExportPreflight({
+    screenshots,
+    exportSizes: selectedSizes.length > 0 ? selectedSizes : selected ? [selected] : [],
+  });
+  const blocking = preflight.some((i) => i.level === "error");
 
   return (
     <SidebarSection title="Export">
@@ -46,6 +68,7 @@ export const ExportSection = ({
         <select
           value={selectedSizeId}
           onChange={(e) => onSizeSelect(e.target.value)}
+          disabled={isExporting}
           className={STYLES.select}
         >
           {Array.from(groups.entries()).map(([group, sizes]) => (
@@ -73,6 +96,33 @@ export const ExportSection = ({
         </p>
       )}
 
+      <div className="mt-3">
+        <p className="text-xs text-gray-400 mb-1.5">Store packs</p>
+        <div className="flex flex-wrap gap-1.5">
+          {exportPacks.map((pack) => {
+            const active =
+              pack.sizeIds.length === selectedSizeIds.length &&
+              pack.sizeIds.every((id) => selectedSizeIds.includes(id));
+            return (
+              <button
+                key={pack.id}
+                type="button"
+                disabled={isExporting}
+                title={pack.description}
+                onClick={() => onApplyPack(pack.sizeIds)}
+                className={`rounded-md px-2 py-1 text-[11px] transition-colors disabled:opacity-50 ${
+                  active
+                    ? "bg-white text-black"
+                    : "bg-[#2a2a2a] text-gray-300 hover:bg-[#333] hover:text-white"
+                }`}
+              >
+                {pack.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <details className="mt-3 group">
         <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-200 list-none flex items-center justify-between">
           <span>Also export other sizes</span>
@@ -91,6 +141,7 @@ export const ExportSection = ({
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={isExporting}
                   onChange={() => onToggleExtraSize(size.id)}
                   className="rounded border-white/20 bg-[#2a2a2a] accent-white"
                 />
@@ -106,9 +157,62 @@ export const ExportSection = ({
         </div>
       </details>
 
-      <button onClick={onExport} className={STYLES.primaryButton}>
-        Export {screenshotCount} shot{screenshotCount !== 1 ? "s" : ""}
-        {exportCount > 1 ? ` × ${exportCount} sizes` : ""}
+      {preflight.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {preflight.map((issue) => (
+            <li
+              key={issue.id}
+              className={`text-[10px] leading-relaxed ${
+                issue.level === "error"
+                  ? "text-red-300"
+                  : issue.level === "warn"
+                    ? "text-amber-200/90"
+                    : "text-zinc-500"
+              }`}
+            >
+              {issue.level === "error"
+                ? "⛔ "
+                : issue.level === "warn"
+                  ? "⚠ "
+                  : "· "}
+              {issue.message}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="mt-2 text-[10px] text-zinc-500">
+        {fileCount} file{fileCount !== 1 ? "s" : ""} will download
+        {exportCount > 1 ? " as a ZIP" : screenshotCount > 1 ? " as a ZIP" : ""}
+      </p>
+
+      {exportError && (
+        <div className="mt-3 rounded-lg border border-red-500/40 bg-red-950/80 px-3 py-2 text-xs text-red-100 flex items-start gap-2">
+          <p className="flex-1 leading-snug">{exportError}</p>
+          {onDismissError && (
+            <button
+              type="button"
+              onClick={onDismissError}
+              className="shrink-0 text-red-200/80 hover:text-white underline"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onExport}
+        disabled={isExporting || screenshotCount === 0 || blocking}
+        aria-busy={isExporting}
+        className={`${STYLES.primaryButton} disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white`}
+      >
+        {isExporting
+          ? "Exporting…"
+          : `Export ${screenshotCount} shot${screenshotCount !== 1 ? "s" : ""}${
+              exportCount > 1 ? ` × ${exportCount} sizes` : ""
+            }`}
       </button>
     </SidebarSection>
   );

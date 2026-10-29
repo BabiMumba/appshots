@@ -1,11 +1,13 @@
 /**
- * RightSidebar — contextual controls (device, content, background, stickers).
+ * RightSidebar — devices, layout, content, background, overlays.
  */
 
 import { useEditor } from "../../context/EditorContext";
-import { gradientPresets } from "../../constants";
+import { devices, gradientPresets } from "../../constants";
 import type { DeviceInstance } from "../../types";
+import { getDeviceSpecById } from "../../lib/device-instances";
 import { DeviceInstancesSection } from "./DeviceInstancesSection";
+import { ActiveDeviceSection } from "./ActiveDeviceSection";
 import { ScreenshotImageSection } from "./ScreenshotImageSection";
 import { LayoutSection } from "./LayoutSection";
 import { ContentSection } from "./ContentSection";
@@ -37,7 +39,17 @@ export const RightSidebar = () => {
     sendDeviceBackward,
     bringImageForward,
     sendImageBackward,
+    screenshots,
+    applyStyleToAllScreens,
+    selectedDeviceId,
+    setSelectedDeviceId,
+    selectedColorId,
+    setSelectedColorId,
+    selectedDevice,
+    exportSize,
   } = useEditor();
+
+  const canApplyToAll = screenshots.length > 1;
 
   const patchActiveDevice = (updates: Partial<DeviceInstance>) => {
     if (!activeDevice) return;
@@ -47,6 +59,22 @@ export const RightSidebar = () => {
       ),
     });
   };
+
+  const handleDeviceSelect = (deviceId: string, defaultColorId: string) => {
+    setSelectedDeviceId(deviceId);
+    setSelectedColorId(defaultColorId);
+  };
+
+  const deviceSpec = activeDevice
+    ? getDeviceSpecById(activeDevice.deviceId)
+    : selectedDevice;
+  const exportAspect = exportSize.width / exportSize.height;
+  const deviceAspect = deviceSpec.width / deviceSpec.height;
+  const aspectDelta = Math.abs(exportAspect - deviceAspect) / exportAspect;
+  const exportAspectHint =
+    aspectDelta > 0.12
+      ? `Preview export is ${exportSize.width}×${exportSize.height}. This frame’s aspect differs — scale/position may look different at export.`
+      : null;
 
   return (
     <aside className={STYLES.sidebar}>
@@ -62,6 +90,16 @@ export const RightSidebar = () => {
 
         {activeDevice ? (
           <>
+            <ActiveDeviceSection
+              devices={devices}
+              selectedDeviceId={selectedDeviceId}
+              selectedColorId={selectedColorId}
+              selectedDevice={selectedDevice}
+              exportAspectHint={exportAspectHint}
+              onDeviceSelect={handleDeviceSelect}
+              onColorSelect={setSelectedColorId}
+            />
+
             <ScreenshotImageSection
               device={activeDevice}
               fileInputRef={fileInputRef}
@@ -72,6 +110,8 @@ export const RightSidebar = () => {
             <LayoutSection
               device={activeDevice}
               onUpdateDevice={patchActiveDevice}
+              canApplyToAll={canApplyToAll}
+              onApplyToAll={() => applyStyleToAllScreens("layout")}
             />
           </>
         ) : (
@@ -88,12 +128,16 @@ export const RightSidebar = () => {
         <ContentSection
           screenshot={activeScreenshot}
           onUpdateScreenshot={updateActiveScreenshot}
+          canApplyToAll={canApplyToAll}
+          onApplyToAll={() => applyStyleToAllScreens("textStyle")}
         />
 
         <AppearanceSection
           screenshot={activeScreenshot}
           gradientPresets={gradientPresets}
           onUpdateScreenshot={updateActiveScreenshot}
+          canApplyToAll={canApplyToAll}
+          onApplyToAll={() => applyStyleToAllScreens("background")}
         />
 
         <OverlayImagesSection

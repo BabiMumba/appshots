@@ -239,18 +239,21 @@ export const ProjectSwitcher = () => {
   };
 
   const displayLabel = linkedFileName ?? activeProject.name;
-  const dirtyMark = isProjectDirty ? " •" : "";
+  // Dirty • only when a disk file is linked — browser already autosaves otherwise
+  const showDiskDirty = Boolean(linkedFileName) && isProjectDirty;
+  const dirtyMark = showDiskDirty ? " •" : "";
+  const statusTitle = linkedFileName
+    ? showDiskDirty
+      ? `${linkedFileName} — unsaved changes to disk file (Ctrl+S)`
+      : `${linkedFileName} — saved to disk`
+    : `${activeProject.name} — autosaved in this browser`;
 
   return (
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-white text-sm transition-colors"
-        title={
-          linkedFileName
-            ? `${linkedFileName}${isProjectDirty ? " (unsaved)" : ""}`
-            : activeProject.name
-        }
+        title={statusTitle}
       >
         <div className="flex items-center gap-2 min-w-0">
           <FolderOpen className="w-4 h-4 text-violet-400 flex-shrink-0" />
@@ -272,10 +275,18 @@ export const ProjectSwitcher = () => {
             <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
               Projects
             </span>
-            {linkedFileName && (
+            {linkedFileName ? (
               <p className="text-[10px] text-zinc-500 truncate">
                 File: {linkedFileName}
-                {canOverwriteLinkedFile ? " · Ctrl+S overwrites" : " · Save As to link"}
+                {showDiskDirty
+                  ? " · unsaved to disk"
+                  : canOverwriteLinkedFile
+                    ? " · Ctrl+S overwrites"
+                    : " · Save As to link"}
+              </p>
+            ) : (
+              <p className="text-[10px] text-zinc-500">
+                Autosaved in this browser
               </p>
             )}
           </div>

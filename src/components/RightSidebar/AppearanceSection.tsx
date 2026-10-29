@@ -5,17 +5,22 @@
 import type { Screenshot, GradientPreset } from "../../types";
 import { SidebarSection } from "./SidebarSection";
 import { BackgroundPicker } from "./BackgroundPicker";
+import { ApplyToAllButton } from "./ApplyToAllButton";
 
 interface AppearanceSectionProps {
   screenshot: Screenshot;
   gradientPresets: GradientPreset[];
   onUpdateScreenshot: (updates: Partial<Screenshot>) => void;
+  canApplyToAll?: boolean;
+  onApplyToAll?: () => void;
 }
 
 export const AppearanceSection = ({
   screenshot,
   gradientPresets,
   onUpdateScreenshot,
+  canApplyToAll = false,
+  onApplyToAll,
 }: AppearanceSectionProps) => (
   <SidebarSection title="Background">
     <BackgroundPicker
@@ -23,5 +28,12 @@ export const AppearanceSection = ({
       gradientPresets={gradientPresets}
       onUpdateScreenshot={onUpdateScreenshot}
     />
+    {onApplyToAll && (
+      <ApplyToAllButton
+        label="Apply background to all screens"
+        disabled={!canApplyToAll}
+        onClick={onApplyToAll}
+      />
+    )}
   </SidebarSection>
 );

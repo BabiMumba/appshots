@@ -1,25 +1,19 @@
 /**
- * SidebarHeader Component
- *
- * Header section with app title and description.
+ * SidebarHeader — brand + link back to landing.
  */
 
+import { Link } from "@tanstack/react-router";
 import { STYLES } from "./constants";
 
-/**
- * SidebarHeader - App title and tagline
- *
- * Displays the application name and brief description
- * at the top of the sidebar.
- *
- * @example
- * <SidebarHeader />
- */
 export const SidebarHeader = () => (
   <div className={STYLES.header}>
-    <h1 className="text-lg font-semibold">AppShots Editor</h1>
-    <p className="text-xs text-gray-400 mt-1">
-      Create App Store and Google Play screenshots
-    </p>
+    <Link to="/" className="group block">
+      <h1 className="text-lg font-semibold group-hover:text-[#c8f542] transition-colors">
+        AppShots
+      </h1>
+      <p className="text-xs text-gray-400 mt-1">
+        Create App Store and Google Play screenshots
+      </p>
+    </Link>
   </div>
 );

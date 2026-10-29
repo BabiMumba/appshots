@@ -4,6 +4,7 @@
 
 import { useEffect, useCallback, useRef } from "react";
 import type { Project } from "../types";
+import { prepareProjectsForPersist } from "./image-store";
 
 export interface PersistedEditorState {
   version: number;
@@ -102,16 +103,25 @@ export const useEditorPersistence = ({
   const onSaveResultRef = useRef(onSaveResult);
   onSaveResultRef.current = onSaveResult;
 
-  const flushSave = useCallback(() => {
+  const flushSave = useCallback(async () => {
     const { projects: p, activeProjectId: id } = latestRef.current;
-    const result = savePersistedState({
-      version: CURRENT_VERSION,
-      projects: p,
-      activeProjectId: id,
-      lastSaved: Date.now(),
-    });
-    onSaveResultRef.current?.(result);
-    return result;
+    try {
+      const prepared = await prepareProjectsForPersist(p);
+      const result = savePersistedState({
+        version: CURRENT_VERSION,
+        projects: prepared,
+        activeProjectId: id,
+        lastSaved: Date.now(),
+      });
+      onSaveResultRef.current?.(result);
+      return result;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to prepare images";
+      const result: SaveResult = { ok: false, reason: "error", message };
+      onSaveResultRef.current?.(result);
+      return result;
+    }
   }, []);
 
   useEffect(() => {
@@ -124,14 +134,16 @@ export const useEditorPersistence = ({
       clearTimeout(saveTimeoutRef.current);
     }
 
-    saveTimeoutRef.current = setTimeout(flushSave, AUTO_SAVE_DELAY);
+    saveTimeoutRef.current = setTimeout(() => {
+      void flushSave();
+    }, AUTO_SAVE_DELAY);
 
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
         // Flush pending edits so remount / Strict Mode does not drop pages
-        flushSave();
+        void flushSave();
       }
     };
   }, [projects, activeProjectId, flushSave]);
@@ -142,7 +154,7 @@ export const useEditorPersistence = ({
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
       }
-      flushSave();
+      void flushSave();
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);

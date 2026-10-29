@@ -21,6 +21,7 @@ interface DeviceFrame3DProps {
   device: DeviceInstance;
   selectedDevice: DeviceSpec;
   selectedColor: DeviceColor;
+  onScreenImageFile?: (file: File) => void;
 }
 
 /** Total depth of the 3D extrusion in pixels */
@@ -40,6 +41,7 @@ export const DeviceFrame3D = ({
   device,
   selectedDevice,
   selectedColor,
+  onScreenImageFile,
 }: DeviceFrame3DProps) => {
   const isSamsungDevice =
     selectedDevice.id.startsWith("samsung-") ||
@@ -117,6 +119,7 @@ export const DeviceFrame3D = ({
             imageZoom={device.imageZoom}
             imageOffsetX={device.imageOffsetX}
             imageOffsetY={device.imageOffsetY}
+            onScreenImageFile={onScreenImageFile}
           />
           <CameraElement
             device={selectedDevice}
