@@ -1,41 +1,27 @@
 /**
- * useLocalStorage Hook
- *
- * Custom hook for persisting editor state to localStorage.
- * Handles serialization, deserialization, and auto-save functionality.
+ * useLocalStorage — persist editor state with visible failure + flush on teardown.
  */
 
 import { useEffect, useCallback, useRef } from "react";
 import type { Project } from "../types";
 
-/**
- * Editor state that gets persisted to localStorage
- */
 export interface PersistedEditorState {
-  /** Editor version for migration support */
   version: number;
-  /** All projects */
   projects: Project[];
-  /** Active project ID */
   activeProjectId: string;
-  /** Timestamp of last save */
   lastSaved: number;
 }
 
 /** Current schema version for migration support */
 const CURRENT_VERSION = 2;
 
-/** localStorage key for editor state */
 const STORAGE_KEY = "app-screenshot-editor-state";
-
-/** Debounce delay for auto-save (ms) */
 const AUTO_SAVE_DELAY = 1000;
 
-/**
- * Loads persisted state from localStorage.
- *
- * @returns Persisted state or null if not found/invalid
- */
+export type SaveResult =
+  | { ok: true }
+  | { ok: false; reason: "quota" | "error"; message: string };
+
 export const loadPersistedState = (): PersistedEditorState | null => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -43,17 +29,19 @@ export const loadPersistedState = (): PersistedEditorState | null => {
 
     const parsed = JSON.parse(stored) as PersistedEditorState;
 
-    // Version check - if old version, return null to reset
-    if (parsed.version !== CURRENT_VERSION) {
-      console.warn(
-        `Editor state version mismatch: ${parsed.version} !== ${CURRENT_VERSION}. Resetting state.`,
-      );
+    // Soft migrate: keep data when version is older but shape is valid
+    if (!parsed.projects || !Array.isArray(parsed.projects)) {
       return null;
     }
 
-    // Basic validation
-    if (!parsed.projects || !Array.isArray(parsed.projects)) {
-      return null;
+    if (parsed.version !== CURRENT_VERSION) {
+      console.warn(
+        `Editor state version ${parsed.version} → ${CURRENT_VERSION} (migrating).`,
+      );
+      return {
+        ...parsed,
+        version: CURRENT_VERSION,
+      };
     }
 
     return parsed;
@@ -63,22 +51,31 @@ export const loadPersistedState = (): PersistedEditorState | null => {
   }
 };
 
-/**
- * Saves state to localStorage.
- *
- * @param state - State to persist
- */
-export const savePersistedState = (state: PersistedEditorState): void => {
+export const savePersistedState = (
+  state: PersistedEditorState,
+): SaveResult => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return { ok: true };
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to save editor state";
+    const isQuota =
+      error instanceof DOMException &&
+      (error.name === "QuotaExceededError" ||
+        error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+        /quota/i.test(message));
     console.error("Failed to save editor state to localStorage:", error);
+    return {
+      ok: false,
+      reason: isQuota ? "quota" : "error",
+      message: isQuota
+        ? "Storage full — export a .appshots backup. Images are too large for the browser."
+        : message,
+    };
   }
 };
 
-/**
- * Clears persisted state from localStorage.
- */
 export const clearPersistedState = (): void => {
   try {
     localStorage.removeItem(STORAGE_KEY);
@@ -88,70 +85,67 @@ export const clearPersistedState = (): void => {
 };
 
 interface UseEditorPersistenceOptions {
-  /** All projects */
   projects: Project[];
-  /** Active project ID */
   activeProjectId: string;
+  onSaveResult?: (result: SaveResult) => void;
 }
 
-/**
- * useEditorPersistence - Auto-saves editor state to localStorage
- *
- * Debounces saves to avoid excessive writes during rapid changes.
- *
- * @param options - Current editor state values
- */
 export const useEditorPersistence = ({
   projects,
   activeProjectId,
+  onSaveResult,
 }: UseEditorPersistenceOptions): void => {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitialMount = useRef(true);
+  const latestRef = useRef({ projects, activeProjectId });
+  latestRef.current = { projects, activeProjectId };
+  const onSaveResultRef = useRef(onSaveResult);
+  onSaveResultRef.current = onSaveResult;
 
-  const saveState = useCallback(() => {
-    const state: PersistedEditorState = {
+  const flushSave = useCallback(() => {
+    const { projects: p, activeProjectId: id } = latestRef.current;
+    const result = savePersistedState({
       version: CURRENT_VERSION,
-      projects,
-      activeProjectId,
+      projects: p,
+      activeProjectId: id,
       lastSaved: Date.now(),
-    };
-    savePersistedState(state);
-  }, [projects, activeProjectId]);
+    });
+    onSaveResultRef.current?.(result);
+    return result;
+  }, []);
 
-  // Debounced auto-save on state changes
   useEffect(() => {
-    // Skip initial mount to avoid overwriting loaded state
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
 
-    // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Schedule new save
-    saveTimeoutRef.current = setTimeout(saveState, AUTO_SAVE_DELAY);
+    saveTimeoutRef.current = setTimeout(flushSave, AUTO_SAVE_DELAY);
 
-    // Cleanup on unmount
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        // Flush pending edits so remount / Strict Mode does not drop pages
+        flushSave();
       }
     };
-  }, [saveState]);
+  }, [projects, activeProjectId, flushSave]);
 
-  // Save immediately on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
-      saveState();
+      flushSave();
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [saveState]);
+  }, [flushSave]);
 };

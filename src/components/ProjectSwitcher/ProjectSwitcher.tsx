@@ -1,12 +1,5 @@
 /**
- * ProjectSwitcher Component
- *
- * Dropdown component for managing projects. Allows users to:
- * - View all projects
- * - Switch between projects
- * - Create new projects
- * - Rename existing projects
- * - Delete projects
+ * ProjectSwitcher — projects list + Open / Save / Save as (.appshots).
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -18,13 +11,17 @@ import {
   Trash2,
   Check,
   X,
+  Download,
+  Upload,
+  Save,
 } from "lucide-react";
 import { useEditor } from "../../context/EditorContext";
 import type { Project } from "../../types";
+import {
+  APPSHOTS_EXTENSION,
+  supportsFileSystemAccess,
+} from "../../lib/project-file";
 
-/**
- * ProjectItem - Individual project in the list
- */
 interface ProjectItemProps {
   project: Project;
   isActive: boolean;
@@ -65,8 +62,13 @@ const ProjectItem = ({
       handleSave();
     } else if (e.key === "Escape") {
       setEditName(project.name);
-      setIsEditing(false);
+      setIsCreatingSafe();
     }
+  };
+
+  const setIsCreatingSafe = () => {
+    setEditName(project.name);
+    setIsEditing(false);
   };
 
   if (isEditing) {
@@ -88,10 +90,7 @@ const ProjectItem = ({
           <Check className="w-4 h-4" />
         </button>
         <button
-          onClick={() => {
-            setEditName(project.name);
-            setIsEditing(false);
-          }}
+          onClick={setIsCreatingSafe}
           className="p-1 hover:bg-zinc-700 rounded text-red-400"
         >
           <X className="w-4 h-4" />
@@ -145,9 +144,6 @@ const ProjectItem = ({
   );
 };
 
-/**
- * ProjectSwitcher - Main dropdown component
- */
 export const ProjectSwitcher = () => {
   const {
     projects,
@@ -157,15 +153,25 @@ export const ProjectSwitcher = () => {
     renameProject,
     deleteProject,
     switchProject,
+    linkedFileName,
+    isProjectDirty,
+    canOverwriteLinkedFile,
+    saveProject,
+    saveProjectAs,
+    openProjectFile,
+    importProjectFile,
   } = useEditor();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const newProjectInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const fsAccess = supportsFileSystemAccess();
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -181,7 +187,6 @@ export const ProjectSwitcher = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Focus new project input when creating
   useEffect(() => {
     if (isCreating && newProjectInputRef.current) {
       newProjectInputRef.current.focus();
@@ -206,16 +211,53 @@ export const ProjectSwitcher = () => {
     }
   };
 
+  const runSave = async (fn: () => Promise<void>) => {
+    setSaveBusy(true);
+    setImportError(null);
+    try {
+      await fn();
+      setIsOpen(false);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  const handleOpen = async () => {
+    setImportError(null);
+    try {
+      await openProjectFile();
+      setIsOpen(false);
+    } catch (err) {
+      if (err instanceof Error && err.message === "FILE_INPUT_FALLBACK") {
+        importInputRef.current?.click();
+        return;
+      }
+      setImportError(err instanceof Error ? err.message : "Open failed");
+    }
+  };
+
+  const displayLabel = linkedFileName ?? activeProject.name;
+  const dirtyMark = isProjectDirty ? " •" : "";
+
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Trigger button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-white text-sm transition-colors"
+        title={
+          linkedFileName
+            ? `${linkedFileName}${isProjectDirty ? " (unsaved)" : ""}`
+            : activeProject.name
+        }
       >
         <div className="flex items-center gap-2 min-w-0">
           <FolderOpen className="w-4 h-4 text-violet-400 flex-shrink-0" />
-          <span className="truncate">{activeProject.name}</span>
+          <span className="truncate">
+            {displayLabel}
+            <span className="text-amber-400">{dirtyMark}</span>
+          </span>
         </div>
         <ChevronDown
           className={`w-4 h-4 text-zinc-400 flex-shrink-0 transition-transform ${
@@ -224,18 +266,21 @@ export const ProjectSwitcher = () => {
         />
       </button>
 
-      {/* Dropdown menu */}
       {isOpen && (
         <div className="absolute top-full left-0 mt-1 w-full bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden">
-          {/* Header */}
-          <div className="px-3 py-2 border-b border-zinc-800">
+          <div className="px-3 py-2 border-b border-zinc-800 space-y-0.5">
             <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
               Projects
             </span>
+            {linkedFileName && (
+              <p className="text-[10px] text-zinc-500 truncate">
+                File: {linkedFileName}
+                {canOverwriteLinkedFile ? " · Ctrl+S overwrites" : " · Save As to link"}
+              </p>
+            )}
           </div>
 
-          {/* Project list */}
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-48 overflow-y-auto">
             {projects.map((project) => (
               <ProjectItem
                 key={project.id}
@@ -252,7 +297,6 @@ export const ProjectSwitcher = () => {
             ))}
           </div>
 
-          {/* Create new project */}
           <div className="border-t border-zinc-800">
             {isCreating ? (
               <div className="p-2 flex items-center gap-2">
@@ -283,13 +327,86 @@ export const ProjectSwitcher = () => {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setIsCreating(true)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-violet-400 hover:bg-zinc-800 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                New Project
-              </button>
+              <>
+                <button
+                  onClick={() => setIsCreating(true)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-violet-400 hover:bg-zinc-800 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Project
+                </button>
+
+                <button
+                  type="button"
+                  disabled={saveBusy}
+                  onClick={() => void runSave(saveProject)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                  <span className="ml-auto text-[10px] text-zinc-500">
+                    Ctrl+S
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={saveBusy}
+                  onClick={() => void runSave(saveProjectAs)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  Save as…
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleOpen()}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  Open {APPSHOTS_EXTENSION}
+                  {!fsAccess && (
+                    <span className="ml-auto text-[10px] text-zinc-500">
+                      file picker
+                    </span>
+                  )}
+                </button>
+
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept={`${APPSHOTS_EXTENSION},.json,application/zip`}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    void importProjectFile(file)
+                      .then(() => {
+                        setImportError(null);
+                        setIsOpen(false);
+                      })
+                      .catch((err: unknown) => {
+                        setImportError(
+                          err instanceof Error ? err.message : "Open failed",
+                        );
+                      });
+                  }}
+                />
+
+                {importError && (
+                  <p className="px-3 pb-2 text-[11px] text-red-400">
+                    {importError}
+                  </p>
+                )}
+
+                <p className="px-3 py-2 text-[10px] text-zinc-600 border-t border-zinc-800/80">
+                  {fsAccess
+                    ? "Chrome/Edge: Open links the file — Ctrl+S overwrites it."
+                    : "This browser downloads a new file on Save. Use Chrome/Edge to overwrite."}
+                </p>
+              </>
             )}
           </div>
         </div>

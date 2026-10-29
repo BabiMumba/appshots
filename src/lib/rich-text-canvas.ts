@@ -203,33 +203,34 @@ export function getPlainText(html: string): string {
 }
 
 /**
- * Measure text with the CSS layout engine (matches editor preview).
- * Falls back to canvas measureText when DOM is unavailable.
+ * Measure with the same engine as fillText — CSS span metrics were drifting
+ * from canvas glyphs (overlap / "betwee" clips on store exports).
  */
-let cssMeasureHost: HTMLSpanElement | null = null;
-
-function measureTextCss(
+function measureTextWidth(
   text: string,
   font: string,
   ctx: CanvasRenderingContext2D,
 ): number {
-  if (typeof document !== "undefined") {
-    if (!cssMeasureHost) {
-      cssMeasureHost = document.createElement("span");
-      cssMeasureHost.setAttribute("aria-hidden", "true");
-      cssMeasureHost.style.cssText =
-        "position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre;margin:0;padding:0;border:0;";
-      document.body.appendChild(cssMeasureHost);
-    }
-    cssMeasureHost.style.font = font;
-    cssMeasureHost.textContent = text;
-    const width = cssMeasureHost.getBoundingClientRect().width;
-    if (width > 0 || text.length === 0) {
-      return width;
-    }
-  }
   ctx.font = font;
   return ctx.measureText(text).width;
+}
+
+/** Load faces used by texts at the exact export pixel size before measure/draw. */
+export async function ensureTextFontsLoaded(
+  texts: { fontFamily: string; fontSize: number; fontWeight?: number }[],
+): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts?.load) return;
+  await document.fonts.ready;
+  await Promise.all(
+    texts.map((t) => {
+      const weight = t.fontWeight ?? 700;
+      const family = t.fontFamily.includes("'")
+        ? t.fontFamily
+        : `'${t.fontFamily}'`;
+      const spec = `${weight} ${Math.max(1, Math.ceil(t.fontSize))}px ${family}, sans-serif`;
+      return document.fonts.load(spec).catch(() => undefined);
+    }),
+  );
 }
 
 /**
@@ -258,9 +259,38 @@ export function renderRichText(
     return `${style} ${weight} ${fontSize}px ${fontFamily}`;
   };
 
-  // Measure text width for a segment (CSS engine ≈ editor wrap)
   const measureSegment = (segment: StyledSegment): number => {
-    return measureTextCss(segment.text, buildFont(segment), ctx);
+    return measureTextWidth(segment.text, buildFont(segment), ctx);
+  };
+
+  /** CSS overflow-wrap: break-word — split an overlong word into fitting chunks. */
+  const breakWordToFit = (word: Word, available: number): Word[] => {
+    if (word.width <= available || word.segments.length === 0) return [word];
+    const chunks: Word[] = [];
+    let segs: StyledSegment[] = [];
+    let width = 0;
+
+    const flush = () => {
+      if (segs.length === 0) return;
+      chunks.push({ segments: segs, width, isNewline: false });
+      segs = [];
+      width = 0;
+    };
+
+    for (const segment of word.segments) {
+      for (const ch of segment.text) {
+        const piece = { ...segment, text: ch };
+        const w = measureSegment(piece);
+        if (segs.length > 0 && width + w > available) {
+          flush();
+        }
+        // Always place at least one character even if wider than available
+        segs.push(piece);
+        width += w;
+      }
+    }
+    flush();
+    return chunks.length > 0 ? chunks : [word];
   };
 
   const drawRoundedHighlight = (
@@ -355,20 +385,47 @@ export function renderRichText(
     const isSpaceOnly =
       word.segments.length === 1 && word.segments[0].text === " ";
 
-    // Check if word fits on current line (mirror CSS overflow-wrap)
-    if (currentLineWidth + wordWidth <= maxWidth || currentLine.length === 0) {
-      currentLine.push(word);
-      currentLineWidth += wordWidth;
-    } else {
-      // Start new line — drop the wrapping space (CSS does not keep it)
-      lines.push({ words: currentLine, width: currentLineWidth });
-      if (isSpaceOnly) {
+    if (isSpaceOnly) {
+      if (currentLine.length === 0) continue; // drop leading wrap spaces
+      if (currentLineWidth + wordWidth <= maxWidth) {
+        currentLine.push(word);
+        currentLineWidth += wordWidth;
+      } else {
+        lines.push({ words: currentLine, width: currentLineWidth });
         currentLine = [];
         currentLineWidth = 0;
-      } else {
-        currentLine = [word];
-        currentLineWidth = wordWidth;
       }
+      continue;
+    }
+
+    if (currentLineWidth + wordWidth <= maxWidth) {
+      currentLine.push(word);
+      currentLineWidth += wordWidth;
+      continue;
+    }
+
+    // Soft wrap — start a new line (CSS drops the wrapping space)
+    if (currentLine.length > 0) {
+      lines.push({ words: currentLine, width: currentLineWidth });
+      currentLine = [];
+      currentLineWidth = 0;
+    }
+
+    // overflow-wrap: break-word when the word alone exceeds maxWidth
+    if (wordWidth > maxWidth) {
+      const parts = breakWordToFit(word, maxWidth);
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (i < parts.length - 1) {
+          lines.push({ words: [part], width: part.width });
+        } else {
+          currentLine = [part];
+          currentLineWidth = part.width;
+        }
+      }
+    } else {
+      currentLine = [word];
+      currentLineWidth = wordWidth;
     }
   }
 
@@ -417,8 +474,7 @@ export function renderRichText(
     for (const word of line.words) {
       for (const segment of word.segments) {
         const font = buildFont(segment);
-        ctx.font = font;
-        const width = measureTextCss(segment.text, font, ctx);
+        const width = measureTextWidth(segment.text, font, ctx);
         positionedSegments.push({ segment, x: currentX, width });
         currentX += width;
       }

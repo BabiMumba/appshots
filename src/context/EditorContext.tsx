@@ -51,7 +51,17 @@ import {
   loadPersistedState,
   useEditorPersistence,
   clearPersistedState,
+  type SaveResult,
 } from "../lib/useLocalStorage";
+import {
+  downloadProjectFile,
+  openProjectWithPicker,
+  parseProjectFile,
+  saveProjectAsWithPicker,
+  supportsFileSystemAccess,
+  writeProjectToHandle,
+  type AppshotsFileHandle,
+} from "../lib/project-file";
 
 const withSyncedTexts = (
   texts: TextOverlay[],
@@ -75,6 +85,20 @@ interface EditorContextType {
   renameProject: (id: string, name: string) => void;
   deleteProject: (id: string) => void;
   switchProject: (id: string) => void;
+  /** Linked .appshots file name (if opened/saved on disk) */
+  linkedFileName: string | null;
+  /** Unsaved changes since last open/save */
+  isProjectDirty: boolean;
+  canOverwriteLinkedFile: boolean;
+  saveProject: () => Promise<void>;
+  saveProjectAs: () => Promise<void>;
+  openProjectFile: () => Promise<void>;
+  /** Fallback when File System Access is unavailable (input[type=file]) */
+  importProjectFile: (file: File) => Promise<void>;
+  /** @deprecated prefer saveProjectAs — kept as alias */
+  exportProjectFile: () => Promise<void>;
+  storageWarning: string | null;
+  dismissStorageWarning: () => void;
 
   // State
   isFontPickerOpen: boolean;
@@ -506,10 +530,61 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     updateProjectState();
   }, [updateProjectState]);
 
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  const dismissStorageWarning = () => setStorageWarning(null);
+
+  const linkedFileHandleRef = useRef<AppshotsFileHandle | null>(null);
+  const [linkedFileName, setLinkedFileName] = useState<string | null>(null);
+  const [canOverwriteLinkedFile, setCanOverwriteLinkedFile] = useState(false);
+  const [isProjectDirty, setIsProjectDirty] = useState(false);
+  const skipDirtyRef = useRef(false);
+  const saveProjectRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const linkFile = (handle: AppshotsFileHandle | null, name: string | null) => {
+    linkedFileHandleRef.current = handle;
+    setLinkedFileName(name);
+    setCanOverwriteLinkedFile(Boolean(handle));
+  };
+
+  const clearLinkedFile = () => linkFile(null, null);
+
+  const markClean = () => {
+    skipDirtyRef.current = true;
+    setIsProjectDirty(false);
+  };
+
+  // Dirty when working copy changes (skip first mount + one tick after open/save)
+  const dirtyReadyRef = useRef(false);
+  useEffect(() => {
+    if (!dirtyReadyRef.current) {
+      dirtyReadyRef.current = true;
+      return;
+    }
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    setIsProjectDirty(true);
+  }, [screenshots, selectedDeviceId, selectedColorId, exportSizeId, exportSizeIds]);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isProjectDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isProjectDirty]);
+
   // Auto-save projects to localStorage
   useEditorPersistence({
     projects,
     activeProjectId,
+    onSaveResult: (result: SaveResult) => {
+      if (!result.ok) setStorageWarning(result.message);
+      else setStorageWarning(null);
+    },
   });
 
   // Wrapper functions that update both local state and project
@@ -642,14 +717,20 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       const target = e.target as HTMLElement | null;
-      if (
+      const inField =
         target &&
         (target.isContentEditable ||
           target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA")
-      ) {
+          target.tagName === "TEXTAREA");
+
+      // Ctrl+S always saves the project (even from text fields)
+      if (e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        void saveProjectRef.current();
         return;
       }
+
+      if (inField) return;
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -665,8 +746,36 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   // Project management functions
   const createProject = (name: string) => {
     const newProject = createDefaultProject(name);
-    setProjects((prev) => [...prev, newProject]);
-    switchProject(newProject.id);
+    // Flush current working copy, then append — avoid switchProject race
+    // where React state has not yet included the new project.
+    const flushed = projects.map((p) =>
+      p.id === activeProjectId
+        ? {
+            ...p,
+            screenshots,
+            selectedDeviceId,
+            selectedColorId,
+            exportSizeId,
+            exportSizeIds,
+            activeScreenshotId,
+            updatedAt: Date.now(),
+          }
+        : p,
+    );
+    setProjects([...flushed, newProject]);
+    setActiveProjectId(newProject.id);
+    setSelectedDeviceIdState(newProject.selectedDeviceId);
+    setSelectedColorIdState(newProject.selectedColorId);
+    setExportSizeIdState(resolveExportSizeId(newProject.exportSizeId));
+    setExportSizeIdsState(newProject.exportSizeIds);
+    setScreenshotsState(newProject.screenshots);
+    setActiveScreenshotIdState(newProject.activeScreenshotId);
+    setSelectedElement(null);
+    historyPast.current = [];
+    historyFuture.current = [];
+    setHistoryTick((t) => t + 1);
+    clearLinkedFile();
+    markClean();
   };
 
   const renameProject = (id: string, name: string) => {
@@ -693,9 +802,28 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const switchProject = (id: string) => {
-    const project = projects.find((p) => p.id === id);
+    if (id === activeProjectId) return;
+
+    // Flush working copy into projects BEFORE loading the other project
+    // (async useEffect sync can race and drop screenshots).
+    const flushed = projects.map((p) =>
+      p.id === activeProjectId
+        ? {
+            ...p,
+            screenshots,
+            selectedDeviceId,
+            selectedColorId,
+            exportSizeId,
+            exportSizeIds,
+            activeScreenshotId,
+            updatedAt: Date.now(),
+          }
+        : p,
+    );
+    const project = flushed.find((p) => p.id === id);
     if (!project) return;
 
+    setProjects(flushed);
     setActiveProjectId(id);
     setSelectedDeviceIdState(project.selectedDeviceId);
     setSelectedColorIdState(project.selectedColorId);
@@ -711,6 +839,154 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     historyPast.current = [];
     historyFuture.current = [];
     setHistoryTick((t) => t + 1);
+    clearLinkedFile();
+    markClean();
+  };
+
+  const snapshotActiveProject = (): Project => ({
+    ...activeProject,
+    screenshots,
+    selectedDeviceId,
+    selectedColorId,
+    exportSizeId,
+    exportSizeIds,
+    activeScreenshotId,
+    updatedAt: Date.now(),
+  });
+
+  const loadIncomingProject = (
+    raw: Project,
+    opts: { renameAsImport?: boolean; fileName?: string | null } = {},
+  ) => {
+    const baseName = raw.name?.trim() || "Untitled";
+    const stem = opts.fileName
+      ?.replace(/\.appshots$/i, "")
+      .replace(/\.json$/i, "")
+      .trim();
+    const incoming = normalizeProject({
+      ...raw,
+      id: generateId(),
+      name: opts.renameAsImport
+        ? `${baseName} (import)`
+        : stem || baseName,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const flushed = projects.map((p) =>
+      p.id === activeProjectId
+        ? {
+            ...p,
+            screenshots,
+            selectedDeviceId,
+            selectedColorId,
+            exportSizeId,
+            exportSizeIds,
+            activeScreenshotId,
+            updatedAt: Date.now(),
+          }
+        : p,
+    );
+    setProjects([...flushed, incoming]);
+    setActiveProjectId(incoming.id);
+    setSelectedDeviceIdState(incoming.selectedDeviceId);
+    setSelectedColorIdState(incoming.selectedColorId);
+    setExportSizeIdState(resolveExportSizeId(incoming.exportSizeId));
+    setExportSizeIdsState(
+      incoming.exportSizeIds?.length
+        ? incoming.exportSizeIds.map(resolveExportSizeId)
+        : [resolveExportSizeId(incoming.exportSizeId)],
+    );
+    skipDirtyRef.current = true;
+    setScreenshotsState(incoming.screenshots);
+    setActiveScreenshotIdState(incoming.activeScreenshotId);
+    setSelectedElement(null);
+    historyPast.current = [];
+    historyFuture.current = [];
+    setHistoryTick((t) => t + 1);
+    markClean();
+    return incoming;
+  };
+
+  const saveProjectAs = async () => {
+    const project = snapshotActiveProject();
+    const handle = await saveProjectAsWithPicker(project, linkedFileName ?? project.name);
+    if (handle) {
+      linkFile(handle, handle.name);
+      // Align project name with file stem
+      const stem = handle.name.replace(/\.appshots$/i, "");
+      if (stem) renameProject(activeProjectId, stem);
+    }
+    markClean();
+  };
+
+  const saveProject = async () => {
+    const project = snapshotActiveProject();
+    const handle = linkedFileHandleRef.current;
+    if (handle) {
+      try {
+        await writeProjectToHandle(handle, project);
+        markClean();
+        return;
+      } catch (err) {
+        console.warn("Overwrite failed, falling back to Save As:", err);
+        clearLinkedFile();
+      }
+    }
+    // No linked file (or write failed) → Save As / download
+    if (supportsFileSystemAccess()) {
+      await saveProjectAs();
+    } else {
+      await downloadProjectFile(project, linkedFileName ?? project.name);
+      markClean();
+    }
+  };
+  saveProjectRef.current = saveProject;
+
+  const openProjectFile = async () => {
+    if (isProjectDirty) {
+      const ok = window.confirm(
+        "You have unsaved changes. Open another project anyway?",
+      );
+      if (!ok) return;
+    }
+
+    if (supportsFileSystemAccess()) {
+      const opened = await openProjectWithPicker();
+      if (!opened) return;
+      loadIncomingProject(opened.data.project, {
+        renameAsImport: false,
+        fileName: opened.fileName,
+      });
+      linkFile(opened.handle, opened.fileName);
+      markClean();
+      return;
+    }
+
+    // Firefox / Safari: caller should use <input type=file> → importProjectFile
+    throw new Error("FILE_INPUT_FALLBACK");
+  };
+
+  const importProjectFile = async (file: File) => {
+    if (isProjectDirty) {
+      const ok = window.confirm(
+        "You have unsaved changes. Open another project anyway?",
+      );
+      if (!ok) return;
+    }
+    const data = await parseProjectFile(file);
+    loadIncomingProject(data.project, {
+      renameAsImport: false,
+      fileName: file.name,
+    });
+    // <input> cannot grant a writable handle — Save will ask for location
+    clearLinkedFile();
+    setLinkedFileName(file.name);
+    markClean();
+  };
+
+  const exportProjectFile = async () => {
+    await saveProjectAs();
   };
 
   const selectedDevice =
@@ -1846,6 +2122,16 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         renameProject,
         deleteProject,
         switchProject,
+        linkedFileName,
+        isProjectDirty,
+        canOverwriteLinkedFile,
+        saveProject,
+        saveProjectAs,
+        openProjectFile,
+        importProjectFile,
+        exportProjectFile,
+        storageWarning,
+        dismissStorageWarning,
 
         isFontPickerOpen,
         setIsFontPickerOpen,
@@ -1934,6 +2220,28 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
         resetEditor,
       }}
     >
+      {storageWarning && (
+        <div className="fixed bottom-4 left-1/2 z-[9999] -translate-x-1/2 max-w-lg w-[calc(100%-2rem)] rounded-xl border border-amber-500/40 bg-amber-950/95 px-4 py-3 text-sm text-amber-50 shadow-xl flex items-start gap-3">
+          <p className="flex-1 leading-snug">{storageWarning}</p>
+          <button
+            type="button"
+            className="shrink-0 text-amber-200/80 hover:text-white text-xs underline"
+            onClick={() => {
+              void exportProjectFile();
+            }}
+          >
+            Export .appshots
+          </button>
+          <button
+            type="button"
+            className="shrink-0 text-amber-200/80 hover:text-white"
+            onClick={dismissStorageWarning}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {children}
     </EditorContext.Provider>
   );

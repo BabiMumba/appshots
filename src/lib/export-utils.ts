@@ -6,7 +6,7 @@ import type {
   DeviceInstance,
 } from "../types";
 import { getExportFilename, getExportZipName } from "../constants";
-import { drawRichText } from "./rich-text-canvas";
+import { drawRichText, ensureTextFontsLoaded } from "./rich-text-canvas";
 import { getDeviceColorById, getDeviceSpecById } from "./device-instances";
 import { getRenderableDevicesForScreenshot } from "./device-overflow";
 import {
@@ -962,8 +962,9 @@ const exportOneSize = async ({
 
     // UI strokes/shadows were tuned around ~400px preview; scale to export
     const scaleX = exportUiScale(canvas.width);
-    // Match TextElement padding: 4px at 400-wide preview → scale to export
-    const paddingX = 8 * scaleX;
+    // Match TextElement padding: 4px @ 400 → L+R subtract from content width, top offsets Y
+    const pad = 4 * scaleX;
+    const paddingX = pad * 2;
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
@@ -1076,6 +1077,13 @@ const exportOneSize = async ({
     const fontScale = canvas.width / Math.max(designWidth, 1);
     const lineHeight = 1.1;
 
+    const textsForFonts = (screenshot.texts ?? []).map((t) => ({
+      fontFamily: t.fontFamily,
+      fontSize: t.fontSize * fontScale,
+      fontWeight: t.fontWeight ?? 700,
+    }));
+    await ensureTextFontsLoaded(textsForFonts);
+
     const toUpperHtml = (html: string) =>
       html.replace(
         /(>|^)([^<]+)/g,
@@ -1084,10 +1092,12 @@ const exportOneSize = async ({
 
     const drawTextOverlay = (text: (typeof screenshot.texts)[number]) => {
       const html = text.uppercase ? toUpperHtml(text.content) : text.content;
+      const boxW = canvas.width * (text.width / 100);
       drawRichText(ctx, html, {
         x: canvas.width * (text.x / 100),
-        y: canvas.height * (text.y / 100),
-        maxWidth: canvas.width * (text.width / 100) - paddingX,
+        // TextElement pads on all sides — content starts below top padding
+        y: canvas.height * (text.y / 100) + pad,
+        maxWidth: Math.max(1, boxW - paddingX),
         fontSize: text.fontSize * fontScale,
         fontFamily: `'${text.fontFamily}', sans-serif`,
         defaultColor: text.color,

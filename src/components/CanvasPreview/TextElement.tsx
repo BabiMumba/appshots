@@ -123,7 +123,7 @@ export const TextElement = ({
     <div
       data-draggable-element="text"
       data-inline-editing={isEditing ? "true" : undefined}
-      className={`absolute whitespace-pre-wrap overflow-visible ${
+      className={`absolute whitespace-pre-wrap ${
         isEditing ? "cursor-text select-text" : "cursor-move select-none"
       } ${textAlignClass(align)}`}
       style={{
@@ -140,6 +140,9 @@ export const TextElement = ({
         textTransform: uppercase ? "uppercase" : "none",
         wordWrap: "break-word",
         overflowWrap: "break-word",
+        // Match export: ink must stay in the text box (no silent overflow)
+        overflow: "hidden",
+        boxSizing: "border-box",
         zIndex: isEditing ? Math.max(zIndex, 250) : zIndex,
         padding: `${paddingPx}px`,
         borderRadius: `${Math.max(2, paddingPx)}px`,

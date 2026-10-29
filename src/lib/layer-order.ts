@@ -58,12 +58,17 @@ export function ensureLayerOrder(screenshot: Screenshot): LayerKey[] {
     subheadline: textKeys[1],
   };
 
-  const existing = (screenshot.layerOrder ?? [])
-    .map((key) => legacyMap[key] ?? key)
-    .filter((key) => expected.has(key));
+  // Remap + dedupe (legacy headline + text:id0 would otherwise paint twice)
+  const seen = new Set<LayerKey>();
+  const existing: LayerKey[] = [];
+  for (const raw of screenshot.layerOrder ?? []) {
+    const key = legacyMap[raw] ?? raw;
+    if (!expected.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    existing.push(key);
+  }
 
-  const existingSet = new Set(existing);
-  const missing = [...expected].filter((key) => !existingSet.has(key));
+  const missing = [...expected].filter((key) => !seen.has(key));
 
   if (existing.length === 0) {
     return buildDefaultLayerOrder(screenshot);
