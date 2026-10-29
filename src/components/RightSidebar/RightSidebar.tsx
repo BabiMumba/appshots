@@ -11,7 +11,6 @@ import { LayoutSection } from "./LayoutSection";
 import { ContentSection } from "./ContentSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { OverlayImagesSection } from "./OverlayImagesSection";
-import { IconLibrarySection } from "./IconLibrarySection";
 import { SidebarSection } from "./SidebarSection";
 import { STYLES } from "./constants";
 
@@ -97,14 +96,13 @@ export const RightSidebar = () => {
           onUpdateScreenshot={updateActiveScreenshot}
         />
 
-        <IconLibrarySection onAddIcon={addIcon} />
-
         <OverlayImagesSection
           screenshot={activeScreenshot}
           selectedElement={selectedElement}
           overlayImageInputRef={overlayImageInputRef}
           onSelectElement={setSelectedElement}
           onAddImage={addOverlayImage}
+          onAddIcon={addIcon}
           onRemoveImage={removeOverlayImage}
           onUpdateSize={updateOverlayImageSize}
           onUpdateLayer={updateOverlayImageLayer}

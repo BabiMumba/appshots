@@ -1,4 +1,4 @@
-import type { DeviceInstance, Screenshot } from "../types";
+import type { DeviceInstance, ImageOverlay, Screenshot } from "../types";
 import { ensureLayerOrder, zIndexForLayer } from "./layer-order";
 
 const SCREEN_WIDTH_PERCENT = 100;
@@ -80,5 +80,57 @@ export const getRenderableDevicesForScreenshot = (
       })
       .filter(({ device, localX }) =>
         isDeviceVisibleInScreenshot(device, localX),
+      );
+  });
+
+export interface RenderableOverlay {
+  image: ImageOverlay;
+  ownerScreenshotId: string;
+  ownerScreenshotIndex: number;
+  targetScreenshotIndex: number;
+  localX: number;
+  layerZIndex: number;
+  isOwner: boolean;
+}
+
+export const isOverlayVisibleInScreenshot = (
+  image: ImageOverlay,
+  localX: number,
+): boolean => {
+  const halfWidth = image.width / 2;
+  return (
+    localX + halfWidth > -VISIBILITY_BUFFER_PERCENT &&
+    localX - halfWidth < SCREEN_WIDTH_PERCENT + VISIBILITY_BUFFER_PERCENT
+  );
+};
+
+/** Same cross-screen clipping as devices — drag an overlay from A into B. */
+export const getRenderableOverlaysForScreenshot = (
+  screenshots: Screenshot[],
+  targetScreenshotIndex: number,
+  gapPercent = 0,
+): RenderableOverlay[] =>
+  screenshots.flatMap((screenshot, ownerScreenshotIndex) => {
+    const ownerOrder = ensureLayerOrder(screenshot);
+    return screenshot.overlayImages
+      .map((image) => {
+        const localX = getDeviceLocalXForScreenshot(
+          image.x,
+          ownerScreenshotIndex,
+          targetScreenshotIndex,
+          gapPercent,
+        );
+        return {
+          image,
+          ownerScreenshotId: screenshot.id,
+          ownerScreenshotIndex,
+          targetScreenshotIndex,
+          localX,
+          layerZIndex: zIndexForLayer(ownerOrder, `image:${image.id}`),
+          isOwner: ownerScreenshotIndex === targetScreenshotIndex,
+        };
+      })
+      .filter(({ image, localX }) =>
+        isOverlayVisibleInScreenshot(image, localX),
       );
   });

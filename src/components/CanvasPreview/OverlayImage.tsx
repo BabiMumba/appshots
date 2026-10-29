@@ -11,9 +11,12 @@ import { getOverlayImageStyles, getDropShadowFilter } from "./utils";
 
 interface OverlayImageProps {
   image: ImageOverlay;
+  /** Horizontal position in this card's % space (may differ from image.x for guests) */
+  renderX?: number;
   zIndex: number;
   isSelected: boolean;
   isInteractive: boolean;
+  showHandles?: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
   onResizeStart?: (
     e: React.MouseEvent,
@@ -27,9 +30,11 @@ interface OverlayImageProps {
 
 export const OverlayImage = ({
   image,
+  renderX = image.x,
   zIndex,
   isSelected,
   isInteractive,
+  showHandles = true,
   onMouseDown,
   onResizeStart,
   onRotateStart,
@@ -39,7 +44,7 @@ export const OverlayImage = ({
   <div
     data-draggable-element="image"
     className="absolute cursor-move select-none"
-    style={getOverlayImageStyles(image, zIndex, isSelected)}
+    style={getOverlayImageStyles(image, zIndex, isSelected, renderX)}
     onMouseDown={isInteractive ? onMouseDown : undefined}
     onContextMenu={isInteractive ? onContextMenu : undefined}
     onClick={(e) => e.stopPropagation()}
@@ -50,7 +55,7 @@ export const OverlayImage = ({
       className="w-full h-full object-contain pointer-events-none"
       style={{ filter: getDropShadowFilter(image.shadow, shadowScale) }}
     />
-    {isSelected && isInteractive && (
+    {isSelected && isInteractive && showHandles && (
       <SelectionHandles
         showCorners
         showSideHandles={false}

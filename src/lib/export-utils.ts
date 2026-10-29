@@ -8,7 +8,10 @@ import type {
 import { getExportFilename, getExportZipName } from "../constants";
 import { drawRichText, ensureTextFontsLoaded } from "./rich-text-canvas";
 import { getDeviceColorById, getDeviceSpecById } from "./device-instances";
-import { getRenderableDevicesForScreenshot } from "./device-overflow";
+import {
+  getRenderableDevicesForScreenshot,
+  getRenderableOverlaysForScreenshot,
+} from "./device-overflow";
 import {
   gradientEndpoints,
   resolveGradientColors,
@@ -1029,7 +1032,10 @@ const exportOneSize = async ({
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    const drawOneOverlay = async (overlayImg: (typeof screenshot.overlayImages)[number]) => {
+    const drawOneOverlay = async (
+      overlayImg: (typeof screenshot.overlayImages)[number],
+      renderX: number = overlayImg.x,
+    ) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
       await new Promise<void>((resolve) => {
@@ -1050,7 +1056,7 @@ const exportOneSize = async ({
             drawWidth = containerHeight * imgAspect;
           }
 
-          const centerX = canvas.width * (overlayImg.x / 100);
+          const centerX = canvas.width * (renderX / 100);
           const centerY = canvas.height * (overlayImg.y / 100);
           const rotation = overlayImg.rotation ?? 0;
 
@@ -1108,6 +1114,10 @@ const exportOneSize = async ({
     };
 
     const renderableDevices = getRenderableDevicesForScreenshot(screenshots, i);
+    const renderableOverlays = getRenderableOverlaysForScreenshot(
+      screenshots,
+      i,
+    );
     const layerOrder = ensureLayerOrder(screenshot);
 
     type PaintJob = { z: number; paint: () => void | Promise<void> };
@@ -1123,17 +1133,15 @@ const exportOneSize = async ({
             paint: () => drawTextOverlay(text),
           });
         }
-      } else if (key.startsWith("image:")) {
-        const imageId = key.slice(6);
-        const overlay = screenshot.overlayImages.find((img) => img.id === imageId);
-        if (overlay) {
-          jobs.push({
-            z: zIndexForLayer(layerOrder, key),
-            paint: () => drawOneOverlay(overlay),
-          });
-        }
       }
-      // Owner devices are drawn via renderableDevices below (same z as guests)
+      // Images + devices (owner & guests) via renderable* below
+    }
+
+    for (const item of renderableOverlays) {
+      jobs.push({
+        z: item.layerZIndex,
+        paint: () => drawOneOverlay(item.image, item.localX),
+      });
     }
 
     for (const item of renderableDevices) {

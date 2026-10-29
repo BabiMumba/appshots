@@ -7,6 +7,7 @@ import { useEditor } from "../../context/EditorContext";
 import {
   gapPercentFromCardWidth,
   getRenderableDevicesForScreenshot,
+  getRenderableOverlaysForScreenshot,
   PREVIEW_SCREEN_GAP_PX,
 } from "../../lib/device-overflow";
 import { Toolbar } from "./Toolbar";
@@ -311,12 +312,18 @@ export const CanvasPreview = () => {
               index,
               previewGapPercent,
             );
+            const renderableOverlays = getRenderableOverlaysForScreenshot(
+              screenshots,
+              index,
+              previewGapPercent,
+            );
 
             return (
               <ScreenshotCard
                 key={screenshot.id}
                 screenshot={screenshot}
                 renderableDevices={renderableDevices}
+                renderableOverlays={renderableOverlays}
                 isActive={activeScreenshotId === screenshot.id}
                 canRemove={screenshots.length > 1}
                 selectedElement={selectedElement}

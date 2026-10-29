@@ -87,8 +87,9 @@ export const getOverlayImageStyles = (
   image: ImageOverlay,
   zIndex: number,
   isSelected: boolean,
+  renderX: number = image.x,
 ): React.CSSProperties => ({
-  left: `${image.x}%`,
+  left: `${renderX}%`,
   top: `${image.y}%`,
   transform: `translate(-50%, -50%) rotate(${image.rotation ?? 0}deg)`,
   width: `${image.width}%`,

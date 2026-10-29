@@ -4,7 +4,10 @@
 
 import { useRef, useState, type RefObject } from "react";
 import type { Screenshot, ExportSize, SelectedElement } from "../../types";
-import type { RenderableDevice } from "../../lib/device-overflow";
+import type {
+  RenderableDevice,
+  RenderableOverlay,
+} from "../../lib/device-overflow";
 import { RemoveButton } from "./RemoveButton";
 import { OverlayImage } from "./OverlayImage";
 import { TextElement } from "./TextElement";
@@ -18,6 +21,7 @@ import { useResizeObserver } from "./useResizeObserver";
 interface ScreenshotCardProps {
   screenshot: Screenshot;
   renderableDevices: RenderableDevice[];
+  renderableOverlays: RenderableOverlay[];
   isActive: boolean;
   canRemove: boolean;
   selectedElement: SelectedElement | null;
@@ -65,6 +69,7 @@ interface ScreenshotCardProps {
 export const ScreenshotCard = ({
   screenshot,
   renderableDevices,
+  renderableOverlays,
   isActive,
   canRemove,
   selectedElement,
@@ -157,6 +162,19 @@ export const ScreenshotCard = ({
         : null;
     }
     if (selectedElement.type === "image" && selectedElement.id) {
+      const local = renderableOverlays.find(
+        (o) =>
+          o.image.id === selectedElement.id &&
+          o.ownerScreenshotId === selectedElement.screenshotId,
+      );
+      if (local) {
+        return {
+          x: local.localX,
+          y: local.image.y,
+          halfWidth: local.image.width / 2,
+          clearTopCenter: true,
+        };
+      }
       const img = screenshot.overlayImages.find(
         (i) => i.id === selectedElement.id,
       );
@@ -243,33 +261,46 @@ export const ScreenshotCard = ({
           />
         )}
 
-        {screenshot.overlayImages.map((image) => (
-          <OverlayImage
-            key={image.id}
-            image={image}
-            zIndex={zIndexForLayer(layerOrder, `image:${image.id}`)}
-            isSelected={isElementSelected(
-              isActive ? selectedElement : null,
+        {renderableOverlays.map(
+          ({ image, localX, ownerScreenshotId, layerZIndex }) => {
+            const selected = isElementSelected(
+              selectedElement,
               "image",
-              screenshot.id,
+              ownerScreenshotId,
               image.id,
-            )}
-            isInteractive
-            shadowScale={previewScale}
-            onMouseDown={(e) =>
-              onElementMouseDown(e, "image", screenshot.id, image.id)
-            }
-            onResizeStart={(e, handle) =>
-              onResizeStart(e, "image", screenshot.id, image.id, handle)
-            }
-            onRotateStart={(e) =>
-              onRotateStart(e, "image", screenshot.id, image.id)
-            }
-            onContextMenu={(e) =>
-              onElementContextMenu(e, "image", screenshot.id, image.id)
-            }
-          />
-        ))}
+            );
+            return (
+              <OverlayImage
+                key={`${ownerScreenshotId}-${image.id}`}
+                image={image}
+                renderX={localX}
+                zIndex={layerZIndex}
+                isSelected={selected}
+                isInteractive
+                showHandles={selected}
+                shadowScale={previewScale}
+                onMouseDown={(e) =>
+                  onElementMouseDown(e, "image", ownerScreenshotId, image.id)
+                }
+                onResizeStart={(e, handle) =>
+                  onResizeStart(
+                    e,
+                    "image",
+                    ownerScreenshotId,
+                    image.id,
+                    handle,
+                  )
+                }
+                onRotateStart={(e) =>
+                  onRotateStart(e, "image", ownerScreenshotId, image.id)
+                }
+                onContextMenu={(e) =>
+                  onElementContextMenu(e, "image", ownerScreenshotId, image.id)
+                }
+              />
+            );
+          },
+        )}
 
         {texts.map((text) => {
           const selected =
