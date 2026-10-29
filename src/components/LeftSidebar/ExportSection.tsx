@@ -14,8 +14,10 @@ interface ExportSectionProps {
   selectedSizeId: string;
   selectedSizeIds: string[];
   screenshots: Screenshot[];
+  assetKind: "screenshot" | "feature";
   isExporting?: boolean;
   exportError?: string | null;
+  onAssetKindChange: (kind: "screenshot" | "feature") => void;
   onSizeSelect: (sizeId: string) => void;
   onToggleExtraSize: (sizeId: string) => void;
   onApplyPack: (sizeIds: string[]) => void;
@@ -39,15 +41,27 @@ export const ExportSection = ({
   selectedSizeId,
   selectedSizeIds,
   screenshots,
+  assetKind,
   isExporting = false,
   exportError = null,
+  onAssetKindChange,
   onSizeSelect,
   onToggleExtraSize,
   onApplyPack,
   onExport,
   onDismissError,
 }: ExportSectionProps) => {
-  const groups = groupSizes(exportSizes);
+  const sizesForMode = exportSizes.filter((s) =>
+    assetKind === "feature"
+      ? s.kind === "feature"
+      : s.kind !== "feature",
+  );
+  const packsForMode = exportPacks.filter((pack) => {
+    const first = exportSizes.find((s) => s.id === pack.sizeIds[0]);
+    if (assetKind === "feature") return first?.kind === "feature";
+    return first?.kind !== "feature";
+  });
+  const groups = groupSizes(sizesForMode);
   const selected = exportSizes.find((s) => s.id === selectedSizeId);
   const exportCount = Math.max(selectedSizeIds.length, 1);
   const screenshotCount = screenshots.length;
@@ -63,6 +77,36 @@ export const ExportSection = ({
 
   return (
     <SidebarSection title="Export">
+      <div className="flex gap-1 p-0.5 rounded-lg bg-[#2a2a2a] mb-3">
+        {(
+          [
+            ["screenshot", "Screenshots"],
+            ["feature", "Feature graphic"],
+          ] as const
+        ).map(([kind, label]) => (
+          <button
+            key={kind}
+            type="button"
+            disabled={isExporting}
+            onClick={() => onAssetKindChange(kind)}
+            className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
+              assetKind === kind
+                ? "bg-white text-black"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {assetKind === "feature" && (
+        <p className="mb-3 text-[10px] text-zinc-500 leading-relaxed">
+          Play Console presentation image — 1024×500, PNG/JPEG up to 15&nbsp;MB.
+          Same editor, landscape canvas.
+        </p>
+      )}
+
       <label className="block">
         <span className="text-xs text-gray-400 mb-1.5 block">Preview size</span>
         <select
@@ -93,13 +137,16 @@ export const ExportSection = ({
           {selected.store === "play" && (
             <span className="ml-1 text-emerald-400">· Play</span>
           )}
+          {selected.kind === "feature" && (
+            <span className="ml-1 text-sky-400">· Feature</span>
+          )}
         </p>
       )}
 
       <div className="mt-3">
         <p className="text-xs text-gray-400 mb-1.5">Store packs</p>
         <div className="flex flex-wrap gap-1.5">
-          {exportPacks.map((pack) => {
+          {packsForMode.map((pack) => {
             const active =
               pack.sizeIds.length === selectedSizeIds.length &&
               pack.sizeIds.every((id) => selectedSizeIds.includes(id));
@@ -131,7 +178,7 @@ export const ExportSection = ({
           </span>
         </summary>
         <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
-          {exportSizes.map((size) => {
+          {sizesForMode.map((size) => {
             const checked = selectedSizeIds.includes(size.id);
             return (
               <label

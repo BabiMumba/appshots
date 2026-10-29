@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-**AppShots** is a client-side React editor for creating App Store and Google Play screenshot sets. Everything runs in the browser: no backend, no accounts, no watermarks.
+**AppShots** is a client-side React editor for **store listing assets**: App Store / Play screenshots and Play **feature graphics** (1024×500). Everything runs in the browser: no backend, no accounts, no watermarks.
+
+Design guidance: `.cursor/skills/frontend-design/` + `.cursor/rules/frontend-design.mdc`.
 
 ## Tech Stack
 

@@ -586,11 +586,13 @@ export const exportSizes: ExportSize[] = [
     width: 1024,
     height: 500,
     store: "play",
-    group: "Google Play",
+    group: "Play — Feature graphic",
+    kind: "feature",
   },
 ];
 
 export const DEFAULT_EXPORT_SIZE_ID = "ios-di-medium-1206";
+export const FEATURE_GRAPHIC_SIZE_ID = "play-feature-graphic";
 
 /** One-click sets of export sizes for common store workflows */
 export type ExportPack = {
@@ -619,6 +621,12 @@ export const exportPacks: ExportPack[] = [
     description: "Required iPhone + iPad 13″",
     sizeIds: ["ios-di-medium-1206", "ios-di-medium-1179", "ios-ipad-13-2064"],
   },
+  {
+    id: "play-feature",
+    label: "Feature graphic",
+    description: "Play Console 1024×500 presentation image",
+    sizeIds: [FEATURE_GRAPHIC_SIZE_ID],
+  },
 ];
 
 export function resolveExportSizeId(id: string | undefined | null): string {
@@ -627,6 +635,14 @@ export function resolveExportSizeId(id: string | undefined | null): string {
   return exportSizes.some((s) => s.id === mapped)
     ? mapped
     : DEFAULT_EXPORT_SIZE_ID;
+}
+
+export function getAssetKindForSizeId(
+  id: string | undefined | null,
+): "screenshot" | "feature" {
+  const resolved = resolveExportSizeId(id);
+  const size = exportSizes.find((s) => s.id === resolved);
+  return size?.kind === "feature" ? "feature" : "screenshot";
 }
 
 export function getExportFilename(

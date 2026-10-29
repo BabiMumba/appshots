@@ -1,67 +1,93 @@
-@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@500;700&family=Syne:wght@700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 body {
   @apply m-0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
+  font-family: "Sora", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-.landing-root {
+/* —— Landing tokens (not acid-green AI default) —— */
+.lp {
+  --lp-ink: #070b14;
+  --lp-surface: #121826;
+  --lp-mist: #9aa4b2;
+  --lp-paper: #f4f6fa;
+  --lp-accent: #3b82f6;
   position: relative;
   overflow-x: hidden;
-  background: #0a0c0b;
-  font-family: "Outfit", system-ui, sans-serif;
+  background: var(--lp-ink);
+  font-family: "Sora", system-ui, sans-serif;
 }
 
-.landing-atmosphere {
+.lp-mesh {
   pointer-events: none;
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 55% at 10% -10%, rgba(200, 245, 66, 0.16), transparent 55%),
-    radial-gradient(ellipse 60% 50% at 90% 20%, rgba(45, 212, 191, 0.12), transparent 50%),
-    linear-gradient(180deg, #0a0c0b 0%, #121816 45%, #0a0c0b 100%);
+    radial-gradient(
+      ellipse 90% 70% at 70% -10%,
+      rgba(59, 130, 246, 0.28),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 70% 50% at 10% 40%,
+      rgba(148, 163, 184, 0.12),
+      transparent 50%
+    ),
+    linear-gradient(165deg, #070b14 0%, #0e1524 42%, #070b14 100%);
 }
 
-.landing-brand {
-  font-family: "Syne", "Outfit", system-ui, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+.lp-display {
+  font-family: "Sora", system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.04em;
 }
 
-.landing-hero-copy {
-  animation: landing-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.lp-hero-copy {
+  animation: lp-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.landing-hero-visual {
-  animation: landing-rise 900ms 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.lp-hero-stage {
+  animation: lp-rise 0.85s 0.08s cubic-bezier(0.22, 1, 0.36, 1) both;
+  margin-inline: -1.25rem;
 }
 
-.landing-hero-image {
-  border-radius: 1.25rem;
-  box-shadow:
-    0 40px 100px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-  transform: perspective(1200px) rotateY(-6deg) rotateX(2deg);
-  transition: transform 500ms ease;
+@media (min-width: 640px) {
+  .lp-hero-stage {
+    margin-inline: 0;
+  }
 }
 
-.landing-hero-visual:hover .landing-hero-image {
-  transform: perspective(1200px) rotateY(-2deg) rotateX(0deg);
+.lp-hero-photo {
+  display: block;
+  width: 100%;
+  border-radius: 0;
 }
 
-@keyframes landing-rise {
+@media (min-width: 640px) {
+  .lp-hero-photo {
+    border-radius: 1rem;
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@keyframes lp-rise {
   from {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translateY(14px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-hero-copy,
+  .lp-hero-stage {
+    animation: none;
   }
 }
 

@@ -1,94 +1,143 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { templateCatalog } from "../lib/templates";
+import { BrandMark } from "../components/Brand/BrandMark";
+
+/** Unsplash placeholders — replace with branded shots later */
+const HERO_SHOT =
+  "https://images.unsplash.com/photo-1512941937669-90a1b58d7c13?auto=format&fit=crop&w=1600&q=80";
+const FEATURE_SHOT =
+  "https://images.unsplash.com/photo-1551650975-87deedd944c3?auto=format&fit=crop&w=1200&q=80";
 
 const LandingPage = () => (
-  <div className="landing-root min-h-screen text-zinc-100">
-    <div className="landing-atmosphere" aria-hidden />
+  <div className="lp min-h-screen text-[var(--lp-ink)]">
+    <div className="lp-mesh" aria-hidden />
 
-    <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-      <span className="landing-brand text-xl tracking-tight">AppShots</span>
-      <Link
-        to="/editor"
-        className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm text-zinc-200 hover:bg-white/10 transition-colors"
-      >
-        Open editor
-      </Link>
+    <header className="relative z-20 mx-auto flex max-w-5xl items-center justify-between px-5 pt-5 sm:px-6">
+      <BrandMark className="text-[var(--lp-paper)] text-[15px]" size={30} />
+      <nav className="flex items-center gap-2 sm:gap-3">
+        <a
+          href="#assets"
+          className="hidden sm:inline text-sm text-[var(--lp-mist)] hover:text-[var(--lp-paper)] transition-colors px-3 py-2"
+        >
+          What you can make
+        </a>
+        <Link
+          to="/editor"
+          className="rounded-full bg-[var(--lp-paper)] px-4 py-2 text-sm font-medium text-[var(--lp-ink)] hover:bg-white transition-colors"
+        >
+          Open editor
+        </Link>
+      </nav>
     </header>
 
     <main className="relative z-10">
-      <section className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl grid-cols-1 items-center gap-10 px-6 pb-16 lg:grid-cols-2 lg:gap-14">
-        <div className="landing-hero-copy">
-          <h1 className="landing-brand text-5xl leading-[0.95] sm:text-6xl lg:text-7xl">
+      {/* Hero — one composition, brand first */}
+      <section className="relative mx-auto flex min-h-[calc(100svh-4.5rem)] max-w-5xl flex-col justify-end px-5 pb-10 pt-16 sm:px-6 sm:pb-14">
+        <div className="lp-hero-copy max-w-xl">
+          <p className="text-[15px] text-[var(--lp-mist)] mb-4">
+            App Store &amp; Google Play assets
+          </p>
+          <h1 className="lp-display text-[clamp(2.75rem,8vw,4.75rem)] leading-[0.95] text-[var(--lp-paper)]">
             AppShots
           </h1>
-          <p className="mt-5 max-w-md text-lg text-zinc-300 leading-relaxed">
-            Store screenshots that look shipped — devices, type, and export sizes
-            for App Store &amp; Play, in the browser.
+          <p className="mt-5 max-w-md text-base sm:text-lg text-[var(--lp-mist)] leading-relaxed">
+            Design store screenshots and Play feature graphics in the browser —
+            then export every size you need.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
               to="/editor"
-              className="inline-flex items-center rounded-full bg-[#c8f542] px-5 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-[#d6ff6a] transition-colors"
+              className="inline-flex items-center rounded-full bg-[var(--lp-accent)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110 transition-[filter]"
             >
-              Start editing
+              Start free
             </Link>
-            <a
-              href="#templates"
-              className="inline-flex items-center rounded-full border border-white/20 px-5 py-2.5 text-sm text-zinc-200 hover:bg-white/5 transition-colors"
+            <Link
+              to="/editor"
+              search={{ mode: "feature" }}
+              className="inline-flex items-center rounded-full border border-white/20 px-5 py-2.5 text-sm text-[var(--lp-paper)] hover:bg-white/5 transition-colors"
             >
-              Browse templates
-            </a>
+              Feature graphic
+            </Link>
           </div>
         </div>
 
-        <div className="landing-hero-visual relative">
+        <div className="lp-hero-stage mt-12 sm:mt-14">
           <img
-            src="/demo-image.png"
-            alt="AppShots editor preview"
-            className="landing-hero-image w-full max-w-xl justify-self-end object-cover"
+            src={HERO_SHOT}
+            alt="Phone mockup placeholder for AppShots"
+            className="lp-hero-photo w-full max-h-[42vh] object-cover object-center"
           />
         </div>
       </section>
 
-      <section id="templates" className="relative z-10 border-t border-white/10 bg-black/30">
-        <div className="mx-auto max-w-6xl px-6 py-16">
-          <h2 className="landing-brand text-3xl sm:text-4xl">Start from a layout</h2>
-          <p className="mt-2 max-w-xl text-zinc-400">
-            Pick a composition, then drop in your screens and export.
+      {/* One job: what the product covers */}
+      <section
+        id="assets"
+        className="relative z-10 border-t border-white/10 bg-[var(--lp-ink)]/80"
+      >
+        <div className="mx-auto max-w-5xl px-5 py-20 sm:px-6">
+          <h2 className="lp-display text-3xl sm:text-4xl text-[var(--lp-paper)]">
+            Built for store submission
+          </h2>
+          <p className="mt-3 max-w-lg text-[var(--lp-mist)]">
+            Same editor. Different canvases when the store asks for a different
+            shape.
           </p>
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {templateCatalog.map((t) => (
+
+          <div className="mt-12 grid gap-10 md:grid-cols-2 md:gap-14">
+            <div>
+              <p className="text-sm font-medium text-[var(--lp-paper)]">
+                Screenshots
+              </p>
+              <p className="mt-2 text-sm text-[var(--lp-mist)] leading-relaxed">
+                Multi-device frames, text, overlays, and the App Store / Play
+                size matrix — export PNG or ZIP.
+              </p>
               <Link
-                key={t.id}
                 to="/editor"
-                search={{ template: t.id }}
-                className="group block rounded-2xl border border-white/10 bg-white/[0.03] p-4 hover:border-[#c8f542]/40 hover:bg-white/[0.06] transition-colors"
+                className="mt-4 inline-block text-sm text-[var(--lp-accent)] hover:underline"
               >
-                <div
-                  className="mb-4 h-28 rounded-xl border border-white/10"
-                  style={{
-                    background:
-                      t.id === "minimal"
-                        ? "linear-gradient(180deg,#f4f4f5,#d4d4d8)"
-                        : t.id === "social"
-                          ? "linear-gradient(160deg,#14532d,#4ade80)"
-                          : t.id === "dual"
-                            ? "linear-gradient(160deg,#0f172a,#2b5876)"
-                            : "linear-gradient(160deg,#111827,#243B55)",
-                  }}
-                />
-                <h3 className="text-sm font-semibold text-white group-hover:text-[#c8f542]">
-                  {t.label}
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500 leading-relaxed">
-                  {t.blurb}
-                </p>
+                Open screenshot editor
               </Link>
-            ))}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[var(--lp-paper)]">
+                Feature graphic
+              </p>
+              <p className="mt-2 text-sm text-[var(--lp-mist)] leading-relaxed">
+                Play Console presentation image —{" "}
+                <span className="text-[var(--lp-paper)]">1024 × 500</span>, PNG
+                or JPEG, up to 15&nbsp;MB. Landscape canvas in the same tool.
+              </p>
+              <Link
+                to="/editor"
+                search={{ mode: "feature" }}
+                className="mt-4 inline-block text-sm text-[var(--lp-accent)] hover:underline"
+              >
+                Open feature graphic canvas
+              </Link>
+            </div>
           </div>
+
+          <div className="mt-14 overflow-hidden rounded-2xl">
+            <img
+              src={FEATURE_SHOT}
+              alt="Wide presentation image placeholder"
+              className="aspect-[1024/500] w-full object-cover"
+            />
+          </div>
+          <p className="mt-3 text-xs text-[var(--lp-mist)]/70">
+            Placeholder photos (Unsplash) — swap for your product shots later.
+          </p>
         </div>
       </section>
     </main>
+
+    <footer className="relative z-10 border-t border-white/10 px-5 py-8 sm:px-6">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 text-sm text-[var(--lp-mist)]">
+        <BrandMark className="text-[var(--lp-paper)] text-sm" size={22} />
+        <span>Free · runs in your browser</span>
+      </div>
+    </footer>
   </div>
 );
 

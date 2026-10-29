@@ -1,5 +1,6 @@
 /**
  * useLocalStorage — persist editor state with visible failure + flush on teardown.
+ * Images should be idb: refs (see image-store) so this payload stays small.
  */
 
 import { useEffect, useCallback, useRef } from "react";
@@ -14,10 +15,11 @@ export interface PersistedEditorState {
 }
 
 /** Current schema version for migration support */
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 const STORAGE_KEY = "app-screenshot-editor-state";
 const AUTO_SAVE_DELAY = 1000;
+const WARNING_DISMISS_KEY = "appshots-storage-warning-dismissed";
 
 export type SaveResult =
   | { ok: true }
@@ -30,7 +32,6 @@ export const loadPersistedState = (): PersistedEditorState | null => {
 
     const parsed = JSON.parse(stored) as PersistedEditorState;
 
-    // Soft migrate: keep data when version is older but shape is valid
     if (!parsed.projects || !Array.isArray(parsed.projects)) {
       return null;
     }
@@ -52,28 +53,48 @@ export const loadPersistedState = (): PersistedEditorState | null => {
   }
 };
 
+const quotaMessage =
+  "Browser storage is full. Your edits stay in this tab — Save a .appshots file so you don’t lose them. Images are kept separately so this should free up after a refresh.";
+
+function isQuotaError(error: unknown): boolean {
+  if (!(error instanceof DOMException) && !(error instanceof Error)) {
+    return /quota/i.test(String(error));
+  }
+  const message = error.message ?? "";
+  return (
+    (error instanceof DOMException &&
+      (error.name === "QuotaExceededError" ||
+        error.name === "NS_ERROR_DOM_QUOTA_REACHED")) ||
+    /quota/i.test(message)
+  );
+}
+
+/**
+ * Write state. On quota: remove the old (often huge) blob first, then retry —
+ * Safari/Chrome often fail updates when the key is already near the limit.
+ */
 export const savePersistedState = (
   state: PersistedEditorState,
 ): SaveResult => {
+  const payload = JSON.stringify(state);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, payload);
     return { ok: true };
   } catch (error) {
+    if (isQuotaError(error)) {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.setItem(STORAGE_KEY, payload);
+        return { ok: true };
+      } catch (retryError) {
+        console.error("Quota persist failed after clear+retry:", retryError);
+        return { ok: false, reason: "quota", message: quotaMessage };
+      }
+    }
     const message =
       error instanceof Error ? error.message : "Failed to save editor state";
-    const isQuota =
-      error instanceof DOMException &&
-      (error.name === "QuotaExceededError" ||
-        error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
-        /quota/i.test(message));
     console.error("Failed to save editor state to localStorage:", error);
-    return {
-      ok: false,
-      reason: isQuota ? "quota" : "error",
-      message: isQuota
-        ? "Storage full — export a .appshots backup. Images are too large for the browser."
-        : message,
-    };
+    return { ok: false, reason: "error", message };
   }
 };
 
@@ -84,6 +105,56 @@ export const clearPersistedState = (): void => {
     console.error("Failed to clear editor state from localStorage:", error);
   }
 };
+
+/** Approximate JSON size of current localStorage editor blob (bytes). */
+export const getPersistedStateByteLength = (): number => {
+  try {
+    return (localStorage.getItem(STORAGE_KEY) ?? "").length * 2;
+  } catch {
+    return 0;
+  }
+};
+
+export const wasStorageWarningDismissed = (): boolean => {
+  try {
+    return sessionStorage.getItem(WARNING_DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+export const markStorageWarningDismissed = (): void => {
+  try {
+    sessionStorage.setItem(WARNING_DISMISS_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+};
+
+export const clearStorageWarningDismissed = (): void => {
+  try {
+    sessionStorage.removeItem(WARNING_DISMISS_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
+/**
+ * Move embedded data:/blob: images into IndexedDB, then rewrite localStorage
+ * with compact idb: refs. Call once after load / when user clicks “Free space”.
+ */
+export async function compactPersistedStorage(
+  projects: Project[],
+  activeProjectId: string,
+): Promise<SaveResult> {
+  const prepared = await prepareProjectsForPersist(projects);
+  return savePersistedState({
+    version: CURRENT_VERSION,
+    projects: prepared,
+    activeProjectId,
+    lastSaved: Date.now(),
+  });
+}
 
 interface UseEditorPersistenceOptions {
   projects: Project[];
@@ -118,7 +189,11 @@ export const useEditorPersistence = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to prepare images";
-      const result: SaveResult = { ok: false, reason: "error", message };
+      const result: SaveResult = {
+        ok: false,
+        reason: isQuotaError(error) ? "quota" : "error",
+        message: isQuotaError(error) ? quotaMessage : message,
+      };
       onSaveResultRef.current?.(result);
       return result;
     }
@@ -142,7 +217,6 @@ export const useEditorPersistence = ({
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
-        // Flush pending edits so remount / Strict Mode does not drop pages
         void flushSave();
       }
     };

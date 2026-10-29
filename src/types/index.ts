@@ -164,6 +164,9 @@ export type SelectedElement = {
 
 export type ExportStore = "appstore" | "play" | "other";
 
+/** Screenshot canvases vs wide store presentation images */
+export type ExportAssetKind = "screenshot" | "feature";
+
 export type ExportSize = {
   id: string;
   label: string;
@@ -173,6 +176,8 @@ export type ExportSize = {
   store: ExportStore;
   group: string;
   required?: boolean;
+  /** Defaults to screenshot when omitted */
+  kind?: ExportAssetKind;
 };
 
 /**

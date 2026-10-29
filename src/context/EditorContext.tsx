@@ -23,7 +23,9 @@ import {
   devices,
   exportSizes,
   DEFAULT_EXPORT_SIZE_ID,
+  FEATURE_GRAPHIC_SIZE_ID,
   resolveExportSizeId,
+  getAssetKindForSizeId,
 } from "../constants";
 import { exportScreenshots } from "../lib/export-utils";
 import {
@@ -60,6 +62,10 @@ import {
   loadPersistedState,
   useEditorPersistence,
   clearPersistedState,
+  compactPersistedStorage,
+  wasStorageWarningDismissed,
+  markStorageWarningDismissed,
+  clearStorageWarningDismissed,
   type SaveResult,
 } from "../lib/useLocalStorage";
 import {
@@ -126,6 +132,9 @@ interface EditorContextType {
   exportSizeIds: string[];
   toggleExportSizeId: (id: string) => void;
   applyExportPack: (sizeIds: string[]) => void;
+  /** screenshot = phone/tablet store slots; feature = Play 1024×500 */
+  assetKind: "screenshot" | "feature";
+  setAssetKind: (kind: "screenshot" | "feature") => void;
   screenshots: Screenshot[];
   setScreenshots: (screenshots: Screenshot[]) => void;
   activeScreenshotId: string;
@@ -432,9 +441,12 @@ const getInitialActiveProjectId = (projects: Project[]): string => {
 export const EditorProvider = ({
   children,
   initialTemplateId,
+  initialAssetMode,
 }: {
   children: ReactNode;
   initialTemplateId?: TemplateId;
+  /** Open editor on feature graphic (1024×500) or screenshots */
+  initialAssetMode?: "screenshot" | "feature";
 }) => {
   // Project state
   const [projects, setProjects] = useState<Project[]>(getInitialProjects);
@@ -443,6 +455,7 @@ export const EditorProvider = ({
   );
   const templateAppliedRef = useRef(false);
   const imagesHydratedRef = useRef(false);
+  const assetModeAppliedRef = useRef(false);
 
   // Get active project
   const activeProject =
@@ -565,7 +578,26 @@ export const EditorProvider = ({
   }, [updateProjectState]);
 
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
-  const dismissStorageWarning = () => setStorageWarning(null);
+  const [isCompactingStorage, setIsCompactingStorage] = useState(false);
+  const dismissStorageWarning = () => {
+    markStorageWarningDismissed();
+    setStorageWarning(null);
+  };
+
+  const freeBrowserStorage = async () => {
+    setIsCompactingStorage(true);
+    try {
+      const result = await compactPersistedStorage(projects, activeProjectId);
+      if (result.ok) {
+        clearStorageWarningDismissed();
+        setStorageWarning(null);
+      } else {
+        setStorageWarning(result.message);
+      }
+    } finally {
+      setIsCompactingStorage(false);
+    }
+  };
 
   const linkedFileHandleRef = useRef<AppshotsFileHandle | null>(null);
   const [linkedFileName, setLinkedFileName] = useState<string | null>(null);
@@ -601,7 +633,7 @@ export const EditorProvider = ({
     setIsProjectDirty(true);
   }, [screenshots, selectedDeviceId, selectedColorId, exportSizeId, exportSizeIds]);
 
-  // Resolve idb: image refs from localStorage into object URLs for the canvas
+  // Hydrate idb: refs, then compact fat data: URLs out of localStorage once
   useEffect(() => {
     if (imagesHydratedRef.current) return;
     imagesHydratedRef.current = true;
@@ -617,8 +649,19 @@ export const EditorProvider = ({
         if (active) {
           setScreenshotsState(active.screenshots);
         }
+        const compact = await compactPersistedStorage(
+          hydrated,
+          active?.id ?? activeProjectId,
+        );
+        if (cancelled) return;
+        if (compact.ok) {
+          clearStorageWarningDismissed();
+          setStorageWarning(null);
+        } else if (!wasStorageWarningDismissed()) {
+          setStorageWarning(compact.message);
+        }
       } catch (err) {
-        console.warn("Image hydrate failed:", err);
+        console.warn("Image hydrate / compact failed:", err);
       }
     })();
     return () => {
@@ -639,13 +682,19 @@ export const EditorProvider = ({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [isProjectDirty, linkedFileName]);
 
-  // Auto-save projects to localStorage
+  // Auto-save projects to localStorage (images as idb: refs)
   useEditorPersistence({
     projects,
     activeProjectId,
     onSaveResult: (result: SaveResult) => {
-      if (!result.ok) setStorageWarning(result.message);
-      else setStorageWarning(null);
+      if (result.ok) {
+        clearStorageWarningDismissed();
+        setStorageWarning(null);
+        return;
+      }
+      // Don't reopen the banner every keystroke after the user dismissed it
+      if (wasStorageWarningDismissed()) return;
+      setStorageWarning(result.message);
     },
   });
 
@@ -711,6 +760,30 @@ export const EditorProvider = ({
     setExportSizeIdState(resolved[0]);
     setExportSizeIdsState(resolved);
   };
+
+  const assetKind = getAssetKindForSizeId(exportSizeId);
+
+  const setAssetKind = (kind: "screenshot" | "feature") => {
+    if (kind === "feature") {
+      setExportSizeIdState(FEATURE_GRAPHIC_SIZE_ID);
+      setExportSizeIdsState([FEATURE_GRAPHIC_SIZE_ID]);
+      return;
+    }
+    if (getAssetKindForSizeId(exportSizeId) === "feature") {
+      setExportSizeIdState(DEFAULT_EXPORT_SIZE_ID);
+      setExportSizeIdsState([DEFAULT_EXPORT_SIZE_ID]);
+    }
+  };
+
+  // Landing / deep-link ?mode=feature
+  useEffect(() => {
+    if (!initialAssetMode || assetModeAppliedRef.current) return;
+    assetModeAppliedRef.current = true;
+    if (initialAssetMode === "feature") {
+      setExportSizeIdState(FEATURE_GRAPHIC_SIZE_ID);
+      setExportSizeIdsState([FEATURE_GRAPHIC_SIZE_ID]);
+    }
+  }, [initialAssetMode]);
   const setScreenshots = (newScreenshots: Screenshot[]) => {
     pushHistory(newScreenshots);
     setScreenshotsState(newScreenshots);
@@ -2441,6 +2514,8 @@ export const EditorProvider = ({
         exportSizeIds,
         toggleExportSizeId,
         applyExportPack,
+        assetKind,
+        setAssetKind,
         screenshots,
         setScreenshots,
         activeScreenshotId,
@@ -2520,25 +2595,37 @@ export const EditorProvider = ({
       }}
     >
       {storageWarning && (
-        <div className="fixed bottom-4 left-1/2 z-[9999] -translate-x-1/2 max-w-lg w-[calc(100%-2rem)] rounded-xl border border-amber-500/40 bg-amber-950/95 px-4 py-3 text-sm text-amber-50 shadow-xl flex items-start gap-3">
-          <p className="flex-1 leading-snug">{storageWarning}</p>
-          <button
-            type="button"
-            className="shrink-0 text-amber-200/80 hover:text-white text-xs underline"
-            onClick={() => {
-              void exportProjectFile();
-            }}
-          >
-            Export .appshots
-          </button>
-          <button
-            type="button"
-            className="shrink-0 text-amber-200/80 hover:text-white"
-            onClick={dismissStorageWarning}
-            aria-label="Dismiss"
-          >
-            ✕
-          </button>
+        <div className="fixed bottom-4 left-1/2 z-[9999] -translate-x-1/2 max-w-lg w-[calc(100%-2rem)] rounded-xl border border-amber-500/40 bg-amber-950/95 px-4 py-3 text-sm text-amber-50 shadow-xl flex flex-col gap-3">
+          <div className="flex items-start gap-3">
+            <p className="flex-1 leading-snug">{storageWarning}</p>
+            <button
+              type="button"
+              className="shrink-0 text-amber-200/80 hover:text-white"
+              onClick={dismissStorageWarning}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={isCompactingStorage}
+              className="rounded-md bg-amber-100/15 px-3 py-1.5 text-xs font-medium text-amber-50 hover:bg-amber-100/25 disabled:opacity-50"
+              onClick={() => void freeBrowserStorage()}
+            >
+              {isCompactingStorage ? "Freeing…" : "Free up space"}
+            </button>
+            <button
+              type="button"
+              className="rounded-md px-3 py-1.5 text-xs text-amber-100/90 underline hover:text-white"
+              onClick={() => {
+                void exportProjectFile();
+              }}
+            >
+              Save .appshots backup
+            </button>
+          </div>
         </div>
       )}
       {children}

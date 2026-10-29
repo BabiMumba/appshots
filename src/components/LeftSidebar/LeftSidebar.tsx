@@ -16,6 +16,8 @@ export const LeftSidebar = () => {
     exportSizeIds,
     toggleExportSizeId,
     applyExportPack,
+    assetKind,
+    setAssetKind,
     handleExport,
     screenshots,
     isExporting,
@@ -38,8 +40,10 @@ export const LeftSidebar = () => {
           selectedSizeId={exportSizeId}
           selectedSizeIds={exportSizeIds}
           screenshots={screenshots}
+          assetKind={assetKind}
           isExporting={isExporting}
           exportError={exportError}
+          onAssetKindChange={setAssetKind}
           onSizeSelect={setExportSizeId}
           onToggleExtraSize={toggleExportSizeId}
           onApplyPack={applyExportPack}

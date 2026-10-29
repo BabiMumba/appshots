@@ -1,0 +1,40 @@
+---
+description: AppShots visual design — Anthropic frontend-design + product-specific constraints
+globs: src/routes/**/*.{tsx,css}, src/components/**/*.{tsx,css}, src/styles.css, public/**/*.{svg,html}
+alwaysApply: false
+---
+
+# AppShots frontend design
+
+Follow the project skill at `.cursor/skills/frontend-design/SKILL.md` (Anthropic). Also apply these product rules.
+
+## Product brief
+
+AppShots makes **store listing assets** in the browser: App Store / Play screenshots **and** Play feature graphics (1024×500). Audience: indie / mobile marketers shipping listings. Vernacular: device frames, store consoles, clean marketing type — not crypto SaaS, not newspaper, not “AI dashboard”.
+
+## Hard avoid (AI-default cluster)
+
+- Warm cream + terracotta/serif combo
+- Near-black + acid lime / vermilion as the only accent
+- Broadsheet hairlines / zero radius / dense columns
+- Identical card kits with soft grey shadows everywhere
+- ALL-CAPS eyebrows, middle-dot meta rows, “WORD — fragment”, trailing `→` on every CTA
+- Purple-on-white / purple mesh as default theme
+
+## Composition
+
+- First viewport = **one** composition: brand, one headline, one supporting line, one CTA group, one dominant visual
+- No stats strips, pill clusters, or secondary marketing in the hero
+- No floating badges/stickers on hero media
+- Cards only when they contain an interaction; never in the hero
+- One job per section
+
+## AppShots tokens (landing)
+
+- Ink: `#070B14` · Surface: `#121826` · Mist: `#9AA4B2` · Paper: `#F4F6FA` · Accent: `#3B82F6` (cobalt, not neon)
+- Type: **Sora** (display + UI). No Inter/Roboto/Arial as design choice.
+- Logo: wordmark + aperture monogram (`BrandMark`) — keep brand as a hero-level signal
+
+## Editor chrome
+
+Preserve the existing dark editor tooling. New surfaces (landing, marketing) follow this rule; do not restyle the whole editor to match landing unless asked.
