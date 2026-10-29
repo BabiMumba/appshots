@@ -103,8 +103,8 @@ interface EditorContextType {
   // State
   isFontPickerOpen: boolean;
   setIsFontPickerOpen: (open: boolean) => void;
-  isStarModalOpen: boolean;
-  setIsStarModalOpen: (open: boolean) => void;
+  isExportSuccessOpen: boolean;
+  setIsExportSuccessOpen: (open: boolean) => void;
   selectedDeviceId: string;
   setSelectedDeviceId: (id: string) => void;
   selectedColorId: string;
@@ -418,7 +418,7 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
 
   // Initialize state from persisted values or defaults
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
-  const [isStarModalOpen, setIsStarModalOpen] = useState(false);
+  const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [selectedDeviceId, setSelectedDeviceIdState] = useState(
     activeProject.selectedDeviceId,
   );
@@ -2087,7 +2087,7 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
       exportSizes: unique,
       designWidth: exportSize.width,
     });
-    setIsStarModalOpen(true);
+    setIsExportSuccessOpen(true);
   };
 
   /**
@@ -2105,7 +2105,7 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
     setScreenshotsState(defaultProject.screenshots);
     setActiveScreenshotIdState(defaultProject.activeScreenshotId);
     setSelectedElement(null);
-    setIsStarModalOpen(false);
+    setIsExportSuccessOpen(false);
     historyPast.current = [];
     historyFuture.current = [];
     setHistoryTick((t) => t + 1);
@@ -2135,8 +2135,8 @@ export const EditorProvider = ({ children }: { children: ReactNode }) => {
 
         isFontPickerOpen,
         setIsFontPickerOpen,
-        isStarModalOpen,
-        setIsStarModalOpen,
+        isExportSuccessOpen,
+        setIsExportSuccessOpen,
         selectedDeviceId,
         setSelectedDeviceId,
         selectedColorId,

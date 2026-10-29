@@ -1,7 +1,5 @@
 import type { DeviceSpec, GradientPreset, ExportSize } from "./types";
 
-export const GITHUB_REPO_URL = "https://github.com/oyeolamilekan/appshots";
-
 export const devices: DeviceSpec[] = [
   {
     id: "iphone-17-pro-max",
