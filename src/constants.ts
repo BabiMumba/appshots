@@ -1,4 +1,9 @@
-import type { DeviceSpec, GradientPreset, ExportSize } from "./types";
+import type {
+  DeviceSpec,
+  GradientPreset,
+  ExportSize,
+  ProjectKind,
+} from "./types";
 
 export const devices: DeviceSpec[] = [
   {
@@ -627,6 +632,12 @@ export const exportPacks: ExportPack[] = [
     description: "Play Console 1024×500 presentation image",
     sizeIds: [FEATURE_GRAPHIC_SIZE_ID],
   },
+  {
+    id: "play-tablet",
+    label: "Play tablet",
+    description: "Play 7″ + 10″ tablet slots",
+    sizeIds: ["play-tablet-7", "play-tablet-10"],
+  },
 ];
 
 export function resolveExportSizeId(id: string | undefined | null): string {
@@ -643,6 +654,96 @@ export function getAssetKindForSizeId(
   const resolved = resolveExportSizeId(id);
   const size = exportSizes.find((s) => s.id === resolved);
   return size?.kind === "feature" ? "feature" : "screenshot";
+}
+
+export function isTabletExportSize(size: {
+  id: string;
+  group: string;
+}): boolean {
+  const id = size.id.toLowerCase();
+  const group = size.group.toLowerCase();
+  return (
+    id.includes("ipad") ||
+    id.includes("tablet") ||
+    group.includes("ipad") ||
+    group.includes("tablet")
+  );
+}
+
+export function inferProjectKindFromExportSizeId(
+  id: string | undefined | null,
+): ProjectKind {
+  const resolved = resolveExportSizeId(id);
+  if (getAssetKindForSizeId(resolved) === "feature") return "feature";
+  const size = exportSizes.find((s) => s.id === resolved);
+  if (size && isTabletExportSize(size)) return "tablet";
+  return "phone";
+}
+
+export function exportSizesForProjectKind(kind: ProjectKind) {
+  if (kind === "feature") {
+    return exportSizes.filter((s) => s.kind === "feature");
+  }
+  if (kind === "tablet") {
+    return exportSizes.filter(
+      (s) => s.kind !== "feature" && isTabletExportSize(s),
+    );
+  }
+  return exportSizes.filter(
+    (s) => s.kind !== "feature" && !isTabletExportSize(s),
+  );
+}
+
+export function defaultExportSizeIdForKind(kind: ProjectKind): string {
+  if (kind === "feature") return FEATURE_GRAPHIC_SIZE_ID;
+  if (kind === "tablet") return "ios-ipad-13-2064";
+  return DEFAULT_EXPORT_SIZE_ID;
+}
+
+export function projectKindLabel(kind: ProjectKind): string {
+  if (kind === "feature") return "Feature graphic";
+  if (kind === "tablet") return "Tablet screenshots";
+  return "Phone screenshots";
+}
+
+export const PROJECT_KIND_OPTIONS: {
+  id: ProjectKind;
+  label: string;
+  blurb: string;
+}[] = [
+  {
+    id: "phone",
+    label: "Phone screenshots",
+    blurb: "App Store / Play phone slots",
+  },
+  {
+    id: "tablet",
+    label: "Tablet screenshots",
+    blurb: "iPad & Play tablet sizes + tablet frame",
+  },
+  {
+    id: "feature",
+    label: "Feature graphic",
+    blurb: "Play presentation image 1024×500",
+  },
+];
+
+// Keep pack list useful per kind
+export function exportPacksForProjectKind(kind: ProjectKind) {
+  if (kind === "feature") {
+    return exportPacks.filter((p) => p.id === "play-feature");
+  }
+  if (kind === "tablet") {
+    return exportPacks.filter(
+      (p) => p.id === "ios-ipad" || p.id === "play-tablet",
+    );
+  }
+  return exportPacks.filter(
+    (p) =>
+      p.id !== "play-feature" &&
+      p.id !== "ios-ipad" &&
+      p.id !== "play-tablet",
+  );
 }
 
 export function getExportFilename(

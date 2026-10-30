@@ -2,7 +2,12 @@
  * Canva-style text format bar — lives outside the screenshot frame.
  */
 
-import type { MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   Bold,
   Italic,
@@ -17,11 +22,20 @@ import {
 } from "lucide-react";
 import type { TextAlign } from "../../types";
 import { executeCommand } from "../RichTextEditor/utils";
+import {
+  getContentFormatState,
+  getSelectionFormatState,
+  stripInlineBold,
+  type FormatTriState,
+  type InlineFormatState,
+} from "../../lib/text-format-state";
 
 interface TextFormatBarProps {
   label: string;
+  content: string;
   fontFamily: string;
   fontSize: number;
+  fontWeight: 600 | 700;
   textColor: string;
   align: TextAlign;
   uppercase: boolean;
@@ -29,6 +43,8 @@ interface TextFormatBarProps {
   onEditText: () => void;
   onAlign: (align: TextAlign) => void;
   onFontSizeChange: (size: number) => void;
+  onFontWeightChange: (weight: 600 | 700) => void;
+  onContentChange: (html: string) => void;
   onTextColorChange: (color: string) => void;
   onToggleUppercase: () => void;
   onOpenFontPicker: () => void;
@@ -36,12 +52,22 @@ interface TextFormatBarProps {
 
 const btn =
   "inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors";
-const btnActive = "bg-white/15 text-white";
+const btnActive = "bg-sky-500/25 text-sky-300 ring-1 ring-sky-400/40";
+const btnMixed =
+  "bg-sky-500/10 text-sky-200/90 ring-1 ring-dashed ring-sky-400/50";
+
+const formatClass = (state: FormatTriState) => {
+  if (state === "on") return btnActive;
+  if (state === "mixed") return btnMixed;
+  return "";
+};
 
 export const TextFormatBar = ({
   label,
+  content,
   fontFamily,
   fontSize,
+  fontWeight,
   textColor,
   align,
   uppercase,
@@ -49,19 +75,85 @@ export const TextFormatBar = ({
   onEditText,
   onAlign,
   onFontSizeChange,
+  onFontWeightChange,
+  onContentChange,
   onTextColorChange,
   onToggleUppercase,
   onOpenFontPicker,
 }: TextFormatBarProps) => {
   const keepFocus = (e: ReactMouseEvent) => e.preventDefault();
+  const pendingCommandRef = useRef<{ command: string; value?: string } | null>(
+    null,
+  );
+  const [liveFormat, setLiveFormat] = useState<InlineFormatState>(() =>
+    getContentFormatState(content, fontWeight),
+  );
 
-  const runFormat = (command: string, value?: string) => {
+  const blockFormat = getContentFormatState(content, fontWeight);
+  const format = isEditing ? liveFormat : blockFormat;
+
+  // Track caret / selection styles while editing on canvas
+  useEffect(() => {
     if (!isEditing) {
-      onEditText();
-      window.setTimeout(() => executeCommand(command, value), 0);
+      setLiveFormat(getContentFormatState(content, fontWeight));
       return;
     }
+
+    const update = () => {
+      const editor = document.querySelector(
+        '[data-inline-editing="true"] [contenteditable="true"]',
+      ) as HTMLElement | null;
+      setLiveFormat(getSelectionFormatState(editor));
+    };
+
+    update();
+    document.addEventListener("selectionchange", update);
+    return () => document.removeEventListener("selectionchange", update);
+  }, [isEditing, content, fontWeight]);
+
+  // Apply format commands queued before contentEditable mounted
+  useEffect(() => {
+    if (!isEditing || !pendingCommandRef.current) return;
+    const pending = pendingCommandRef.current;
+    pendingCommandRef.current = null;
+    const id = window.requestAnimationFrame(() => {
+      const editor = document.querySelector(
+        '[data-inline-editing="true"] [contenteditable="true"]',
+      ) as HTMLElement | null;
+      editor?.focus();
+      executeCommand(pending.command, pending.value);
+      setLiveFormat(getSelectionFormatState(editor));
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [isEditing]);
+
+  const runInlineFormat = (command: string, value?: string) => {
+    if (!isEditing) {
+      pendingCommandRef.current = { command, value };
+      onEditText();
+      return;
+    }
+    const editor = document.querySelector(
+      '[data-inline-editing="true"] [contenteditable="true"]',
+    ) as HTMLElement | null;
+    editor?.focus();
     executeCommand(command, value);
+    setLiveFormat(getSelectionFormatState(editor));
+  };
+
+  /** Block-level bold when not editing; selection bold when editing. */
+  const toggleBold = () => {
+    if (isEditing) {
+      runInlineFormat("bold");
+      return;
+    }
+    // Whole block: base weight drives the B highlight; strip inline marks when off
+    if (format.bold === "on") {
+      onFontWeightChange(600);
+      onContentChange(stripInlineBold(content));
+    } else {
+      onFontWeightChange(700);
+    }
   };
 
   const safeColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(textColor)
@@ -79,7 +171,12 @@ export const TextFormatBar = ({
 
       <button
         type="button"
-        title={isEditing ? "Editing on canvas" : "Edit on canvas (double-click or Enter)"}
+        title={
+          isEditing
+            ? "Editing on canvas — Esc to finish"
+            : "Edit text (click again on canvas, or press Enter)"
+        }
+        aria-pressed={isEditing}
         className={`${btn} ${isEditing ? btnActive : ""} gap-1 w-auto px-2`}
         onClick={onEditText}
       >
@@ -160,34 +257,49 @@ export const TextFormatBar = ({
 
       <button
         type="button"
-        title="Bold"
-        className={btn}
+        title={
+          format.bold === "mixed"
+            ? "Bold (mixed — some characters bold)"
+            : "Bold"
+        }
+        aria-pressed={format.bold === "on"}
+        aria-label="Bold"
+        className={`${btn} ${formatClass(format.bold)}`}
         onMouseDown={keepFocus}
-        onClick={() => runFormat("bold")}
+        onClick={toggleBold}
       >
         <Bold className="w-3.5 h-3.5" />
       </button>
       <button
         type="button"
-        title="Italic"
-        className={btn}
+        title={
+          format.italic === "mixed" ? "Italic (mixed)" : "Italic"
+        }
+        aria-pressed={format.italic === "on"}
+        aria-label="Italic"
+        className={`${btn} ${formatClass(format.italic)}`}
         onMouseDown={keepFocus}
-        onClick={() => runFormat("italic")}
+        onClick={() => runInlineFormat("italic")}
       >
         <Italic className="w-3.5 h-3.5" />
       </button>
       <button
         type="button"
-        title="Underline"
-        className={btn}
+        title={
+          format.underline === "mixed" ? "Underline (mixed)" : "Underline"
+        }
+        aria-pressed={format.underline === "on"}
+        aria-label="Underline"
+        className={`${btn} ${formatClass(format.underline)}`}
         onMouseDown={keepFocus}
-        onClick={() => runFormat("underline")}
+        onClick={() => runInlineFormat("underline")}
       >
         <Underline className="w-3.5 h-3.5" />
       </button>
       <button
         type="button"
         title="Uppercase"
+        aria-pressed={uppercase}
         className={`${btn} w-auto px-2 text-[11px] font-semibold ${uppercase ? btnActive : ""}`}
         onClick={onToggleUppercase}
       >
@@ -199,6 +311,7 @@ export const TextFormatBar = ({
       <button
         type="button"
         title="Align left"
+        aria-pressed={align === "left"}
         className={`${btn} ${align === "left" ? btnActive : ""}`}
         onClick={() => onAlign("left")}
       >
@@ -207,6 +320,7 @@ export const TextFormatBar = ({
       <button
         type="button"
         title="Align center"
+        aria-pressed={align === "center"}
         className={`${btn} ${align === "center" ? btnActive : ""}`}
         onClick={() => onAlign("center")}
       >
@@ -215,6 +329,7 @@ export const TextFormatBar = ({
       <button
         type="button"
         title="Align right"
+        aria-pressed={align === "right"}
         className={`${btn} ${align === "right" ? btnActive : ""}`}
         onClick={() => onAlign("right")}
       >

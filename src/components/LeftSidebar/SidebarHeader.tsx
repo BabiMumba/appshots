@@ -14,7 +14,7 @@ export const SidebarHeader = () => (
         size={26}
       />
       <p className="text-xs text-gray-400 mt-2">
-        Screenshots &amp; store feature graphics
+        Phone, tablet &amp; feature graphic — separate projects
       </p>
     </Link>
   </div>

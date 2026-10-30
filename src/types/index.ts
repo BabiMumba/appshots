@@ -164,8 +164,14 @@ export type SelectedElement = {
 
 export type ExportStore = "appstore" | "play" | "other";
 
-/** Screenshot canvases vs wide store presentation images */
+/** Canvas export family: phone/tablet slots vs Play feature graphic */
 export type ExportAssetKind = "screenshot" | "feature";
+
+/**
+ * Locked at project creation — phone screenshots, tablet screenshots, or
+ * Play feature graphic are separate projects (not a toggle on the same canvas).
+ */
+export type ProjectKind = "phone" | "tablet" | "feature";
 
 export type ExportSize = {
   id: string;
@@ -188,6 +194,11 @@ export type Project = {
   id: string;
   /** Project name */
   name: string;
+  /**
+   * What this project is for. Locked — switch kinds by creating/opening
+   * another project, not by remapping the same screens.
+   */
+  kind: ProjectKind;
   /** Creation timestamp */
   createdAt: number;
   /** Last update timestamp */

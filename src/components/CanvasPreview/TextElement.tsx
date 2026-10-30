@@ -2,7 +2,11 @@
  * TextElement — draggable / inline-editable text overlay.
  */
 
-import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import type { TextAlign } from "../../types";
 import { getTextSelectionStyles } from "./utils";
 import {
@@ -39,6 +43,52 @@ interface TextElementProps {
   onContextMenu?: (e: ReactMouseEvent) => void;
 }
 
+const placeCaretFromPoint = (
+  el: HTMLElement,
+  clientX: number,
+  clientY: number,
+) => {
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  // Chromium / WebKit
+  const caretFromPoint =
+    (
+      document as Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+        caretPositionFromPoint?: (
+          x: number,
+          y: number,
+        ) => { offsetNode: Node; offset: number } | null;
+      }
+    );
+
+  let range: Range | null = null;
+  if (typeof caretFromPoint.caretRangeFromPoint === "function") {
+    range = caretFromPoint.caretRangeFromPoint(clientX, clientY);
+  } else if (typeof caretFromPoint.caretPositionFromPoint === "function") {
+    const pos = caretFromPoint.caretPositionFromPoint(clientX, clientY);
+    if (pos) {
+      range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+    }
+  }
+
+  if (range && el.contains(range.startContainer)) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return;
+  }
+
+  // Fallback: caret at end
+  range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+};
+
 export const TextElement = ({
   content,
   x,
@@ -65,6 +115,8 @@ export const TextElement = ({
   const normalizedContent = normalizeRichTextHighlights(content);
   const editorRef = useRef<HTMLDivElement>(null);
   const lastEmittedHtml = useRef(content);
+  const editPointRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!isEditing || !editorRef.current) return;
@@ -73,12 +125,18 @@ export const TextElement = ({
     el.innerHTML = initial;
     lastEmittedHtml.current = initial;
     el.focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    const point = editPointRef.current ?? lastPointerRef.current;
+    editPointRef.current = null;
+    if (point) {
+      placeCaretFromPoint(el, point.x, point.y);
+    } else {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing]);
 
@@ -116,7 +174,16 @@ export const TextElement = ({
       e.stopPropagation();
       return;
     }
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
     if (isInteractive) onMouseDown(e);
+  };
+
+  const handleDoubleClick = (e: ReactMouseEvent) => {
+    if (!isInteractive || isEditing || !onDoubleClick) return;
+    e.preventDefault();
+    e.stopPropagation();
+    editPointRef.current = { x: e.clientX, y: e.clientY };
+    onDoubleClick(e);
   };
 
   return (
@@ -156,9 +223,7 @@ export const TextElement = ({
           : getTextSelectionStyles(isSelected)),
       }}
       onMouseDown={handleMouseDown}
-      onDoubleClick={
-        isInteractive && !isEditing ? onDoubleClick : undefined
-      }
+      onDoubleClick={handleDoubleClick}
       onContextMenu={isInteractive ? onContextMenu : undefined}
       onClick={(e) => e.stopPropagation()}
     >

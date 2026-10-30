@@ -1,9 +1,15 @@
 /**
- * ExportSection — preview size, store packs, multi-export, then export.
+ * ExportSection — sizes & packs for the *current project kind* only.
+ * Phone / tablet / feature are separate projects (no shared-canvas toggle).
  */
 
-import type { ExportSize, Screenshot } from "../../types";
+import type { ExportSize, ProjectKind, Screenshot } from "../../types";
 import type { ExportPack } from "../../constants";
+import {
+  exportPacksForProjectKind,
+  exportSizesForProjectKind,
+  projectKindLabel,
+} from "../../constants";
 import { runExportPreflight } from "../../lib/export-preflight";
 import { SidebarSection } from "./SidebarSection";
 import { STYLES } from "./constants";
@@ -14,10 +20,10 @@ interface ExportSectionProps {
   selectedSizeId: string;
   selectedSizeIds: string[];
   screenshots: Screenshot[];
-  assetKind: "screenshot" | "feature";
+  projectKind: ProjectKind;
   isExporting?: boolean;
   exportError?: string | null;
-  onAssetKindChange: (kind: "screenshot" | "feature") => void;
+  onCreateProjectOfKind: (kind: ProjectKind) => void;
   onSizeSelect: (sizeId: string) => void;
   onToggleExtraSize: (sizeId: string) => void;
   onApplyPack: (sizeIds: string[]) => void;
@@ -36,83 +42,87 @@ function groupSizes(sizes: ExportSize[]): Map<string, ExportSize[]> {
 }
 
 export const ExportSection = ({
-  exportSizes,
-  exportPacks,
   selectedSizeId,
   selectedSizeIds,
   screenshots,
-  assetKind,
+  projectKind,
   isExporting = false,
   exportError = null,
-  onAssetKindChange,
+  onCreateProjectOfKind,
   onSizeSelect,
   onToggleExtraSize,
   onApplyPack,
   onExport,
   onDismissError,
 }: ExportSectionProps) => {
-  const sizesForMode = exportSizes.filter((s) =>
-    assetKind === "feature"
-      ? s.kind === "feature"
-      : s.kind !== "feature",
-  );
-  const packsForMode = exportPacks.filter((pack) => {
-    const first = exportSizes.find((s) => s.id === pack.sizeIds[0]);
-    if (assetKind === "feature") return first?.kind === "feature";
-    return first?.kind !== "feature";
-  });
+  const sizesForMode = exportSizesForProjectKind(projectKind);
+  const packsForMode = exportPacksForProjectKind(projectKind);
   const groups = groupSizes(sizesForMode);
-  const selected = exportSizes.find((s) => s.id === selectedSizeId);
+  const selected = sizesForMode.find((s) => s.id === selectedSizeId) ??
+    sizesForMode[0];
   const exportCount = Math.max(selectedSizeIds.length, 1);
   const screenshotCount = screenshots.length;
-  const fileCount = screenshotCount * exportCount;
-  const selectedSizes = exportSizes.filter((s) =>
+  const fileCount =
+    projectKind === "feature" ? exportCount : screenshotCount * exportCount;
+  const selectedSizes = sizesForMode.filter((s) =>
     selectedSizeIds.includes(s.id),
   );
   const preflight = runExportPreflight({
     screenshots,
-    exportSizes: selectedSizes.length > 0 ? selectedSizes : selected ? [selected] : [],
+    exportSizes:
+      selectedSizes.length > 0 ? selectedSizes : selected ? [selected] : [],
   });
   const blocking = preflight.some((i) => i.level === "error");
 
+  const otherKinds = (
+    [
+      ["phone", "Phone screenshots"],
+      ["tablet", "Tablet screenshots"],
+      ["feature", "Feature graphic"],
+    ] as const
+  ).filter(([k]) => k !== projectKind);
+
   return (
     <SidebarSection title="Export">
-      <div className="flex gap-1 p-0.5 rounded-lg bg-[#2a2a2a] mb-3">
-        {(
-          [
-            ["screenshot", "Screenshots"],
-            ["feature", "Feature graphic"],
-          ] as const
-        ).map(([kind, label]) => (
-          <button
-            key={kind}
-            type="button"
-            disabled={isExporting}
-            onClick={() => onAssetKindChange(kind)}
-            className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
-              assetKind === kind
-                ? "bg-white text-black"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-3 rounded-lg border border-white/10 bg-[#2a2a2a] px-3 py-2">
+        <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+          This project
+        </p>
+        <p className="mt-0.5 text-sm font-medium text-white">
+          {projectKindLabel(projectKind)}
+        </p>
+        <p className="mt-1 text-[10px] text-zinc-500 leading-relaxed">
+          {projectKind === "feature"
+            ? "One Play banner artboard (1024×500). Screenshots live in a separate project."
+            : projectKind === "tablet"
+              ? "Tablet frames & store sizes — not a stretched phone layout."
+              : "Phone screenshot strip. Feature graphic & tablet are other projects."}
+        </p>
       </div>
 
-      {assetKind === "feature" && (
-        <p className="mb-3 text-[10px] text-zinc-500 leading-relaxed">
-          Play Console presentation image — 1024×500, PNG/JPEG up to 15&nbsp;MB.
-          Same editor, landscape canvas.
-        </p>
+      {otherKinds.length > 0 && (
+        <div className="mb-3 space-y-1">
+          <p className="text-[10px] text-zinc-500">Start a separate project</p>
+          {otherKinds.map(([kind, label]) => (
+            <button
+              key={kind}
+              type="button"
+              disabled={isExporting}
+              onClick={() => onCreateProjectOfKind(kind)}
+              className="w-full rounded-md border border-white/10 bg-transparent px-2.5 py-1.5 text-left text-[11px] text-zinc-300 hover:border-white/25 hover:bg-white/5 disabled:opacity-50"
+            >
+              + {label}
+            </button>
+          ))}
+        </div>
       )}
 
       <label className="block">
         <span className="text-xs text-gray-400 mb-1.5 block">Preview size</span>
         <select
-          value={selectedSizeId}
+          value={selected?.id ?? selectedSizeId}
           onChange={(e) => onSizeSelect(e.target.value)}
-          disabled={isExporting}
+          disabled={isExporting || sizesForMode.length === 0}
           className={STYLES.select}
         >
           {Array.from(groups.entries()).map(([group, sizes]) => (
@@ -137,110 +147,92 @@ export const ExportSection = ({
           {selected.store === "play" && (
             <span className="ml-1 text-emerald-400">· Play</span>
           )}
-          {selected.kind === "feature" && (
+          {projectKind === "feature" && (
             <span className="ml-1 text-sky-400">· Feature</span>
           )}
         </p>
       )}
 
-      <div className="mt-3">
-        <p className="text-xs text-gray-400 mb-1.5">Store packs</p>
-        <div className="flex flex-wrap gap-1.5">
-          {packsForMode.map((pack) => {
-            const active =
-              pack.sizeIds.length === selectedSizeIds.length &&
-              pack.sizeIds.every((id) => selectedSizeIds.includes(id));
-            return (
-              <button
-                key={pack.id}
-                type="button"
-                disabled={isExporting}
-                title={pack.description}
-                onClick={() => onApplyPack(pack.sizeIds)}
-                className={`rounded-md px-2 py-1 text-[11px] transition-colors disabled:opacity-50 ${
-                  active
-                    ? "bg-white text-black"
-                    : "bg-[#2a2a2a] text-gray-300 hover:bg-[#333] hover:text-white"
-                }`}
-              >
-                {pack.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <details className="mt-3 group">
-        <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-200 list-none flex items-center justify-between">
-          <span>Also export other sizes</span>
-          <span className="text-gray-500 group-open:rotate-180 transition-transform">
-            ▾
-          </span>
-        </summary>
-        <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
-          {sizesForMode.map((size) => {
-            const checked = selectedSizeIds.includes(size.id);
-            return (
-              <label
-                key={size.id}
-                className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
+      {packsForMode.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs text-gray-400 mb-1.5">Store packs</p>
+          <div className="flex flex-wrap gap-1.5">
+            {packsForMode.map((pack) => {
+              const active =
+                pack.sizeIds.length === selectedSizeIds.length &&
+                pack.sizeIds.every((id) => selectedSizeIds.includes(id));
+              return (
+                <button
+                  key={pack.id}
+                  type="button"
                   disabled={isExporting}
-                  onChange={() => onToggleExtraSize(size.id)}
-                  className="rounded border-white/20 bg-[#2a2a2a] accent-white"
-                />
-                <span className="truncate">
-                  {size.shortLabel}
-                  <span className="text-gray-500 ml-1">
-                    {size.width}×{size.height}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
+                  title={pack.description}
+                  onClick={() => onApplyPack(pack.sizeIds)}
+                  className={`rounded-md px-2 py-1 text-[11px] transition-colors disabled:opacity-50 ${
+                    active
+                      ? "bg-white text-black"
+                      : "bg-[#2a2a2a] text-gray-300 hover:bg-[#333]"
+                  }`}
+                >
+                  {pack.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </details>
+      )}
+
+      {projectKind !== "feature" && sizesForMode.length > 1 && (
+        <div className="mt-3">
+          <p className="text-xs text-gray-400 mb-1.5">Also export</p>
+          <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
+            {sizesForMode.map((size) => {
+              const checked = selectedSizeIds.includes(size.id);
+              return (
+                <label
+                  key={size.id}
+                  className="flex items-center gap-2 text-[11px] text-gray-300 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={isExporting}
+                    onChange={() => onToggleExtraSize(size.id)}
+                    className="rounded border-zinc-600"
+                  />
+                  <span className="truncate">
+                    {size.shortLabel} · {size.width}×{size.height}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {preflight.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
-          {preflight.map((issue) => (
+        <ul className="mt-3 space-y-1">
+          {preflight.map((item) => (
             <li
-              key={issue.id}
+              key={item.id}
               className={`text-[10px] leading-relaxed ${
-                issue.level === "error"
-                  ? "text-red-300"
-                  : issue.level === "warn"
-                    ? "text-amber-200/90"
-                    : "text-zinc-500"
+                item.level === "error" ? "text-red-400" : "text-amber-400/90"
               }`}
             >
-              {issue.level === "error"
-                ? "⛔ "
-                : issue.level === "warn"
-                  ? "⚠ "
-                  : "· "}
-              {issue.message}
+              {item.message}
             </li>
           ))}
         </ul>
       )}
 
-      <p className="mt-2 text-[10px] text-zinc-500">
-        {fileCount} file{fileCount !== 1 ? "s" : ""} will download
-        {exportCount > 1 ? " as a ZIP" : screenshotCount > 1 ? " as a ZIP" : ""}
-      </p>
-
       {exportError && (
-        <div className="mt-3 rounded-lg border border-red-500/40 bg-red-950/80 px-3 py-2 text-xs text-red-100 flex items-start gap-2">
-          <p className="flex-1 leading-snug">{exportError}</p>
+        <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-2">
+          <p className="text-[11px] text-red-300">{exportError}</p>
           {onDismissError && (
             <button
               type="button"
               onClick={onDismissError}
-              className="shrink-0 text-red-200/80 hover:text-white underline"
+              className="mt-1 text-[10px] text-red-200/80 underline"
             >
               Dismiss
             </button>
@@ -250,16 +242,13 @@ export const ExportSection = ({
 
       <button
         type="button"
+        disabled={isExporting || blocking}
         onClick={onExport}
-        disabled={isExporting || screenshotCount === 0 || blocking}
-        aria-busy={isExporting}
-        className={`${STYLES.primaryButton} disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white`}
+        className="mt-4 w-full rounded-lg bg-white px-3 py-2.5 text-sm font-semibold text-black hover:bg-neutral-200 disabled:opacity-50 transition-colors"
       >
         {isExporting
           ? "Exporting…"
-          : `Export ${screenshotCount} shot${screenshotCount !== 1 ? "s" : ""}${
-              exportCount > 1 ? ` × ${exportCount} sizes` : ""
-            }`}
+          : `Export ${fileCount} file${fileCount !== 1 ? "s" : ""}`}
       </button>
     </SidebarSection>
   );

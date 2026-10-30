@@ -16,11 +16,21 @@ import {
   Save,
 } from "lucide-react";
 import { useEditor } from "../../context/EditorContext";
-import type { Project } from "../../types";
+import type { Project, ProjectKind } from "../../types";
+import type { TemplateId } from "../../lib/templates";
 import {
   APPSHOTS_EXTENSION,
   supportsFileSystemAccess,
 } from "../../lib/project-file";
+import {
+  PROJECT_KIND_OPTIONS,
+  inferProjectKindFromExportSizeId,
+  projectKindLabel,
+} from "../../constants";
+import { TemplatePicker } from "../TemplatePicker/TemplatePicker";
+
+const kindOf = (project: Project): ProjectKind =>
+  project.kind ?? inferProjectKindFromExportSizeId(project.exportSizeId);
 
 interface ProjectItemProps {
   project: Project;
@@ -110,10 +120,15 @@ const ProjectItem = ({
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <FolderOpen className="w-4 h-4 flex-shrink-0" />
-        <span className="truncate text-sm">{project.name}</span>
-        <span className="text-xs text-zinc-500">
-          ({project.screenshots.length})
-        </span>
+        <div className="min-w-0 flex-1">
+          <span className="truncate text-sm block">{project.name}</span>
+          <span className="text-[10px] text-zinc-500">
+            {projectKindLabel(kindOf(project))}
+            {kindOf(project) !== "feature"
+              ? ` · ${project.screenshots.length}`
+              : ""}
+          </span>
+        </div>
       </div>
 
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -150,6 +165,7 @@ export const ProjectSwitcher = () => {
     activeProjectId,
     activeProject,
     createProject,
+    createProjectFromTemplate,
     renameProject,
     deleteProject,
     switchProject,
@@ -164,7 +180,9 @@ export const ProjectSwitcher = () => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectKind, setNewProjectKind] = useState<ProjectKind>("phone");
   const [importError, setImportError] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -194,12 +212,19 @@ export const ProjectSwitcher = () => {
   }, [isCreating]);
 
   const handleCreateProject = () => {
-    if (newProjectName.trim()) {
-      createProject(newProjectName.trim());
-      setNewProjectName("");
-      setIsCreating(false);
-      setIsOpen(false);
-    }
+    const name =
+      newProjectName.trim() || projectKindLabel(newProjectKind);
+    createProject(name, newProjectKind);
+    setNewProjectName("");
+    setNewProjectKind("phone");
+    setIsCreating(false);
+    setIsOpen(false);
+  };
+
+  const handleTemplateSelect = (id: TemplateId) => {
+    createProjectFromTemplate(id);
+    setShowTemplates(false);
+    setIsOpen(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -269,6 +294,13 @@ export const ProjectSwitcher = () => {
         />
       </button>
 
+      {showTemplates && (
+        <TemplatePicker
+          onSelect={handleTemplateSelect}
+          onClose={() => setShowTemplates(false)}
+        />
+      )}
+
       {isOpen && (
         <div className="absolute top-full left-0 mt-1 w-full bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="px-3 py-2 border-b border-zinc-800 space-y-0.5">
@@ -310,32 +342,56 @@ export const ProjectSwitcher = () => {
 
           <div className="border-t border-zinc-800">
             {isCreating ? (
-              <div className="p-2 flex items-center gap-2">
-                <input
-                  ref={newProjectInputRef}
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Project name"
-                  className="flex-1 px-2 py-1.5 text-sm bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500"
-                />
-                <button
-                  onClick={handleCreateProject}
-                  disabled={!newProjectName.trim()}
-                  className="p-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-white transition-colors"
-                >
-                  <Check className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => {
-                    setIsCreating(false);
-                    setNewProjectName("");
-                  }}
-                  className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              <div className="p-2 space-y-2">
+                <div className="flex flex-col gap-1">
+                  {PROJECT_KIND_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setNewProjectKind(opt.id)}
+                      className={`rounded-md px-2 py-1.5 text-left transition-colors ${
+                        newProjectKind === opt.id
+                          ? "bg-violet-600/30 text-violet-200 ring-1 ring-violet-400/40"
+                          : "bg-zinc-800/80 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      <span className="block text-xs font-medium">
+                        {opt.label}
+                      </span>
+                      <span className="block text-[10px] opacity-70">
+                        {opt.blurb}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={newProjectInputRef}
+                    type="text"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Name (optional)"
+                    className="flex-1 px-2 py-1.5 text-sm bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+                  />
+                  <button
+                    onClick={handleCreateProject}
+                    className="p-1.5 bg-violet-600 hover:bg-violet-500 rounded text-white transition-colors"
+                    title="Create"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsCreating(false);
+                      setNewProjectName("");
+                      setNewProjectKind("phone");
+                    }}
+                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -344,7 +400,18 @@ export const ProjectSwitcher = () => {
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-violet-400 hover:bg-zinc-800 transition-colors"
                 >
                   <Plus className="w-4 h-4" />
-                  New Project
+                  New project…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    setShowTemplates(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-sky-400 hover:bg-zinc-800 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  From template…
                 </button>
 
                 <button

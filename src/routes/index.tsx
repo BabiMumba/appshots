@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BrandMark } from "../components/Brand/BrandMark";
+import { LandingTemplatesSection } from "../components/TemplatePicker/TemplatePicker";
 
 /** Unsplash placeholders — replace with branded shots later */
 const HERO_SHOT =
@@ -15,8 +16,14 @@ const LandingPage = () => (
       <BrandMark className="text-[var(--lp-paper)] text-[15px]" size={30} />
       <nav className="flex items-center gap-2 sm:gap-3">
         <a
-          href="#assets"
+          href="#templates"
           className="hidden sm:inline text-sm text-[var(--lp-mist)] hover:text-[var(--lp-paper)] transition-colors px-3 py-2"
+        >
+          Templates
+        </a>
+        <a
+          href="#assets"
+          className="hidden md:inline text-sm text-[var(--lp-mist)] hover:text-[var(--lp-paper)] transition-colors px-3 py-2"
         >
           What you can make
         </a>
@@ -50,13 +57,12 @@ const LandingPage = () => (
             >
               Start free
             </Link>
-            <Link
-              to="/editor"
-              search={{ mode: "feature" }}
+            <a
+              href="#templates"
               className="inline-flex items-center rounded-full border border-white/20 px-5 py-2.5 text-sm text-[var(--lp-paper)] hover:bg-white/5 transition-colors"
             >
-              Feature graphic
-            </Link>
+              Browse templates
+            </a>
           </div>
         </div>
 
@@ -130,6 +136,8 @@ const LandingPage = () => (
           </p>
         </div>
       </section>
+
+      <LandingTemplatesSection />
     </main>
 
     <footer className="relative z-10 border-t border-white/10 px-5 py-8 sm:px-6">

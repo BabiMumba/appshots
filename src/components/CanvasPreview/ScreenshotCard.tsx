@@ -69,6 +69,12 @@ interface ScreenshotCardProps {
     screenshotId: string,
     id?: string,
   ) => void;
+  /**
+   * When set, card uses a fixed pixel size (feature artboard + zoom)
+   * instead of filling the row height.
+   */
+  artboardWidthPx?: number;
+  artboardHeightPx?: number;
 }
 
 export const ScreenshotCard = ({
@@ -97,6 +103,8 @@ export const ScreenshotCard = ({
   onDuplicateElement,
   onDeleteElement,
   onElementContextMenu,
+  artboardWidthPx,
+  artboardHeightPx,
 }: ScreenshotCardProps) => {
   const layerOrder = ensureLayerOrder(screenshot);
   const localRef = useRef<HTMLDivElement | null>(null);
@@ -237,11 +245,18 @@ export const ScreenshotCard = ({
           onDeselect();
         }
       }}
-      className={`relative h-full rounded-xl cursor-pointer transition-all ${
-        isActive ? "opacity-100" : "opacity-70 hover:opacity-100"
-      }`}
+      className={`relative rounded-xl cursor-pointer transition-all shrink-0 ${
+        artboardWidthPx ? "" : "h-full"
+      } ${isActive ? "opacity-100" : "opacity-70 hover:opacity-100"}`}
       style={{
-        aspectRatio: `${exportSize.width}/${exportSize.height}`,
+        ...(artboardWidthPx && artboardHeightPx
+          ? {
+              width: artboardWidthPx,
+              height: artboardHeightPx,
+            }
+          : {
+              aspectRatio: `${exportSize.width}/${exportSize.height}`,
+            }),
         boxShadow: isActive
           ? "inset 0 0 0 2px rgba(255, 255, 255, 0.95)"
           : undefined,

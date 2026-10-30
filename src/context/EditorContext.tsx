@@ -16,16 +16,18 @@ import type {
   ImageOverlay,
   ShadowConfig,
   Project,
+  ProjectKind,
   SelectedElement,
   TextAlign,
 } from "../types";
 import {
   devices,
   exportSizes,
-  DEFAULT_EXPORT_SIZE_ID,
-  FEATURE_GRAPHIC_SIZE_ID,
   resolveExportSizeId,
   getAssetKindForSizeId,
+  inferProjectKindFromExportSizeId,
+  defaultExportSizeIdForKind,
+  projectKindLabel,
 } from "../constants";
 import { exportScreenshots } from "../lib/export-utils";
 import {
@@ -49,8 +51,9 @@ import {
   syncLegacyTextFields,
 } from "../lib/text-overlays";
 import type { TextOverlay } from "../types";
-import {
+  import {
   buildTemplateProject,
+  resolveTemplateId,
   type TemplateId,
 } from "../lib/templates";
 import {
@@ -96,7 +99,13 @@ interface EditorContextType {
   projects: Project[];
   activeProjectId: string;
   activeProject: Project;
-  createProject: (name: string) => void;
+  createProject: (name: string, kind?: ProjectKind) => void;
+  /** Create a blank project locked to phone / tablet / feature */
+  createProjectOfKind: (kind: ProjectKind, name?: string) => void;
+  /** Create a new project from a store template */
+  createProjectFromTemplate: (templateId: TemplateId) => void;
+  /** Locked project kind (phone | tablet | feature) */
+  projectKind: ProjectKind;
   renameProject: (id: string, name: string) => void;
   deleteProject: (id: string) => void;
   switchProject: (id: string) => void;
@@ -132,9 +141,8 @@ interface EditorContextType {
   exportSizeIds: string[];
   toggleExportSizeId: (id: string) => void;
   applyExportPack: (sizeIds: string[]) => void;
-  /** screenshot = phone/tablet store slots; feature = Play 1024×500 */
+  /** Derived from projectKind for canvas/export chrome */
   assetKind: "screenshot" | "feature";
-  setAssetKind: (kind: "screenshot" | "feature") => void;
   screenshots: Screenshot[];
   setScreenshots: (screenshots: Screenshot[]) => void;
   activeScreenshotId: string;
@@ -386,8 +394,12 @@ const normalizeProject = (project: Project): Project => {
     new Set(rawIds.map(resolveExportSizeId).concat(exportSizeId)),
   );
 
+  const kind =
+    project.kind ?? inferProjectKindFromExportSizeId(exportSizeId);
+
   return {
     ...project,
+    kind,
     selectedDeviceId: fallbackDeviceId,
     selectedColorId: fallbackColorId,
     exportSizeId,
@@ -399,21 +411,90 @@ const normalizeProject = (project: Project): Project => {
   };
 };
 
-// Create a default project
-const createDefaultProject = (name: string = "My Project"): Project => {
-  const defaultDeviceId = devices[0].id;
-  const defaultColorId = devices[0].colors[0].id;
-  const defaultScreenshot = createDefaultScreenshot(defaultDeviceId, defaultColorId);
+function deviceDefaultsForKind(kind: ProjectKind): {
+  deviceId: string;
+  colorId: string;
+  deviceOverrides?: Partial<DeviceInstance>;
+} {
+  if (kind === "tablet") {
+    const tablet =
+      devices.find((d) => d.id === "ipad-pro-12-9") ?? devices[0];
+    return {
+      deviceId: tablet.id,
+      colorId: tablet.colors[0].id,
+      deviceOverrides: { y: 42, scale: 72, style: "flat" },
+    };
+  }
+  if (kind === "feature") {
+    const phone =
+      devices.find((d) => d.id === "iphone-17-pro") ?? devices[0];
+    return {
+      deviceId: phone.id,
+      colorId: phone.colors[0].id,
+      deviceOverrides: { x: 72, y: 52, scale: 48, style: "3d" },
+    };
+  }
+  const phone = devices[0];
+  return { deviceId: phone.id, colorId: phone.colors[0].id };
+}
+
+// Create a default project locked to a kind
+const createDefaultProject = (
+  name: string = "My Project",
+  kind: ProjectKind = "phone",
+): Project => {
+  const { deviceId, colorId, deviceOverrides } = deviceDefaultsForKind(kind);
+  const exportSizeId = defaultExportSizeIdForKind(kind);
+  let defaultScreenshot = createDefaultScreenshot(deviceId, colorId);
+  if (deviceOverrides) {
+    defaultScreenshot = {
+      ...defaultScreenshot,
+      devices: defaultScreenshot.devices.map((d, i) =>
+        i === 0 ? { ...d, ...deviceOverrides } : d,
+      ),
+    };
+  }
+  if (kind === "feature") {
+    defaultScreenshot = {
+      ...defaultScreenshot,
+      texts: createDefaultTexts({
+        headline: "Your app, featured",
+        subheadline: "Play Console · 1024 × 500",
+        headlineFontSize: 64,
+        subheadlineFontSize: 28,
+      }),
+    };
+    defaultScreenshot = {
+      ...defaultScreenshot,
+      ...syncLegacyTextFields(defaultScreenshot.texts),
+    };
+  } else if (kind === "tablet") {
+    defaultScreenshot = {
+      ...defaultScreenshot,
+      texts: createDefaultTexts({
+        headline: "Made for tablet",
+        subheadline: "Layout sized for iPad / Play tablet — not a stretched phone.",
+        headlineFontSize: 64,
+        subheadlineFontSize: 32,
+      }),
+    };
+    defaultScreenshot = {
+      ...defaultScreenshot,
+      ...syncLegacyTextFields(defaultScreenshot.texts),
+    };
+  }
+
   return {
     id: generateId(),
-    name,
+    name: name || projectKindLabel(kind),
+    kind,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     screenshots: [defaultScreenshot],
-    selectedDeviceId: defaultDeviceId,
-    selectedColorId: defaultColorId,
-    exportSizeId: DEFAULT_EXPORT_SIZE_ID,
-    exportSizeIds: [DEFAULT_EXPORT_SIZE_ID],
+    selectedDeviceId: deviceId,
+    selectedColorId: colorId,
+    exportSizeId,
+    exportSizeIds: [exportSizeId],
     activeScreenshotId: defaultScreenshot.id,
   };
 };
@@ -492,6 +573,12 @@ export const EditorProvider = ({
   } | null>(null);
   const suppressDeselectUntil = useRef(0);
   const dragHistoryPushed = useRef(false);
+  /** Second click on an already-selected text (no drag) → enter edit */
+  const textClickEditRef = useRef<{
+    screenshotId: string;
+    textId: string;
+    wasSelected: boolean;
+  } | null>(null);
   const historyPast = useRef<{ screenshots: Screenshot[] }[]>([]);
   const historyFuture = useRef<{ screenshots: Screenshot[] }[]>([]);
   const [historyTick, setHistoryTick] = useState(0);
@@ -551,6 +638,7 @@ export const EditorProvider = ({
         p.id === activeProjectId
           ? {
               ...p,
+              kind: p.kind ?? inferProjectKindFromExportSizeId(exportSizeId),
               screenshots,
               selectedDeviceId,
               selectedColorId,
@@ -761,28 +849,35 @@ export const EditorProvider = ({
     setExportSizeIdsState(resolved);
   };
 
-  const assetKind = getAssetKindForSizeId(exportSizeId);
+  const projectKind: ProjectKind =
+    activeProject.kind ?? inferProjectKindFromExportSizeId(exportSizeId);
+  const assetKind: "screenshot" | "feature" =
+    projectKind === "feature" ? "feature" : "screenshot";
 
-  const setAssetKind = (kind: "screenshot" | "feature") => {
-    if (kind === "feature") {
-      setExportSizeIdState(FEATURE_GRAPHIC_SIZE_ID);
-      setExportSizeIdsState([FEATURE_GRAPHIC_SIZE_ID]);
-      return;
-    }
-    if (getAssetKindForSizeId(exportSizeId) === "feature") {
-      setExportSizeIdState(DEFAULT_EXPORT_SIZE_ID);
-      setExportSizeIdsState([DEFAULT_EXPORT_SIZE_ID]);
-    }
-  };
-
-  // Landing / deep-link ?mode=feature
+  // Landing / deep-link ?mode=feature → open a *separate* feature project
   useEffect(() => {
     if (!initialAssetMode || assetModeAppliedRef.current) return;
     assetModeAppliedRef.current = true;
-    if (initialAssetMode === "feature") {
-      setExportSizeIdState(FEATURE_GRAPHIC_SIZE_ID);
-      setExportSizeIdsState([FEATURE_GRAPHIC_SIZE_ID]);
-    }
+    if (initialAssetMode !== "feature") return;
+    if (projectKind === "feature") return;
+
+    const featureProject = createDefaultProject("Feature graphic", "feature");
+    const flushed = projects.map((p) =>
+      p.id === activeProjectId
+        ? {
+            ...p,
+            screenshots,
+            selectedDeviceId,
+            selectedColorId,
+            exportSizeId,
+            exportSizeIds,
+            activeScreenshotId,
+            updatedAt: Date.now(),
+          }
+        : p,
+    );
+    mountProject(featureProject, [...flushed, featureProject]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once on deep link
   }, [initialAssetMode]);
   const setScreenshots = (newScreenshots: Screenshot[]) => {
     pushHistory(newScreenshots);
@@ -943,17 +1038,12 @@ export const EditorProvider = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- apply once on mount
   }, [initialTemplateId]);
 
-  // Project management functions
-  const createProject = (name: string) => {
-    if (!confirmLeaveLinkedFile("Creating a new project")) return;
-
-    const newProject = createDefaultProject(name);
-    // Flush current working copy, then append — avoid switchProject race
-    // where React state has not yet included the new project.
+  const flushActiveIntoProjects = (extra: Project): Project[] => {
     const flushed = projects.map((p) =>
       p.id === activeProjectId
         ? {
             ...p,
+            kind: projectKind,
             screenshots,
             selectedDeviceId,
             selectedColorId,
@@ -964,7 +1054,26 @@ export const EditorProvider = ({
           }
         : p,
     );
-    mountProject(newProject, [...flushed, newProject]);
+    return [...flushed, extra];
+  };
+
+  // Project management functions
+  const createProject = (name: string, kind: ProjectKind = "phone") => {
+    if (!confirmLeaveLinkedFile("Creating a new project")) return;
+    const newProject = createDefaultProject(name, kind);
+    mountProject(newProject, flushActiveIntoProjects(newProject));
+  };
+
+  const createProjectOfKind = (kind: ProjectKind, name?: string) => {
+    createProject(name?.trim() || projectKindLabel(kind), kind);
+  };
+
+  const createProjectFromTemplate = (templateId: TemplateId) => {
+    if (!confirmLeaveLinkedFile("Creating a project from a template")) return;
+
+    const resolved = resolveTemplateId(templateId) ?? templateId;
+    const newProject = buildTemplateProject(resolved);
+    mountProject(newProject, flushActiveIntoProjects(newProject));
   };
 
   const renameProject = (id: string, name: string) => {
@@ -1057,6 +1166,7 @@ export const EditorProvider = ({
 
   const snapshotActiveProject = (): Project => ({
     ...activeProject,
+    kind: projectKind,
     screenshots,
     selectedDeviceId,
     selectedColorId,
@@ -1262,6 +1372,9 @@ export const EditorProvider = ({
   ]);
 
   const addScreenshot = () => {
+    // Feature graphic is a single artboard — no screenshot strip
+    if (getAssetKindForSizeId(exportSizeId) === "feature") return;
+
     const newDevices = activeScreenshot.devices.map((device) =>
       cloneDeviceInstance(device, { id: generateId() }),
     );
@@ -1299,6 +1412,7 @@ export const EditorProvider = ({
   };
 
   const duplicateScreenshot = (id?: string) => {
+    if (getAssetKindForSizeId(exportSizeId) === "feature") return;
     const sourceId = id ?? activeScreenshotId;
     const source = screenshots.find((s) => s.id === sourceId);
     if (!source) return;
@@ -1409,21 +1523,51 @@ export const EditorProvider = ({
     }
     dragStartPos.current = { x: e.clientX, y: e.clientY };
 
-    if (type === "device" && id) {
-      updateScreenshotById(screenshotId, { activeDeviceId: id });
-      const device = targetScreenshot.devices.find((item) => item.id === id);
-      if (device) {
-        dragStartElementPos.current = { x: device.x, y: device.y };
+    if (type === "text" && id) {
+      const alreadySelected =
+        !inlineEditing &&
+        selectedElement?.type === "text" &&
+        selectedElement.screenshotId === screenshotId &&
+        selectedElement.id === id;
+      // detail>=2 = double-click (or triple). Enter edit even if React
+      // hasn't committed the first-click selection yet.
+      const openEditor = alreadySelected || e.detail >= 2;
+      textClickEditRef.current = {
+        screenshotId,
+        textId: id,
+        wasSelected: openEditor,
+      };
+      if (e.detail >= 2) {
+        // Don't start a drag on the second click of a double-click
+        setIsDragging(false);
+        if (activeScreenshotId !== screenshotId) {
+          setActiveScreenshotIdState(screenshotId);
+        }
+        setSelectedElement({ type: "text", screenshotId, id });
+        pushHistory();
+        setInlineEditing({ screenshotId, textId: id });
+        textClickEditRef.current = null;
+        return;
       }
-    } else if (type === "text" && id) {
       const text = (targetScreenshot.texts ?? []).find((t) => t.id === id);
       if (text) {
         dragStartElementPos.current = { x: text.x, y: text.y };
       }
-    } else if (type === "image" && id) {
-      const image = targetScreenshot.overlayImages.find((img) => img.id === id);
-      if (image) {
-        dragStartElementPos.current = { x: image.x, y: image.y };
+    } else {
+      textClickEditRef.current = null;
+      if (type === "device" && id) {
+        updateScreenshotById(screenshotId, { activeDeviceId: id });
+        const device = targetScreenshot.devices.find((item) => item.id === id);
+        if (device) {
+          dragStartElementPos.current = { x: device.x, y: device.y };
+        }
+      } else if (type === "image" && id) {
+        const image = targetScreenshot.overlayImages.find(
+          (img) => img.id === id,
+        );
+        if (image) {
+          dragStartElementPos.current = { x: image.x, y: image.y };
+        }
       }
     }
   };
@@ -1640,6 +1784,10 @@ export const EditorProvider = ({
   );
 
   const handleElementMouseUp = useCallback(() => {
+    const modeAtUp = interactionMode.current;
+    const pendingTextEdit = textClickEditRef.current;
+    textClickEditRef.current = null;
+
     setIsDragging(false);
     interactionMode.current = "none";
     resizeMeta.current = null;
@@ -1651,7 +1799,29 @@ export const EditorProvider = ({
     if (pendingUpdate.current) {
       applyDragUpdate();
     }
-  }, [applyDragUpdate]);
+
+    // Figma-style: second click on selected text (no drag) opens the editor.
+    // More reliable than depending on dblclick alone after a re-render.
+    if (
+      pendingTextEdit?.wasSelected &&
+      modeAtUp === "none" &&
+      pendingTextEdit.textId
+    ) {
+      if (activeScreenshotId !== pendingTextEdit.screenshotId) {
+        setActiveScreenshotIdState(pendingTextEdit.screenshotId);
+      }
+      setSelectedElement({
+        type: "text",
+        screenshotId: pendingTextEdit.screenshotId,
+        id: pendingTextEdit.textId,
+      });
+      pushHistory();
+      setInlineEditing({
+        screenshotId: pendingTextEdit.screenshotId,
+        textId: pendingTextEdit.textId,
+      });
+    }
+  }, [applyDragUpdate, activeScreenshotId, pushHistory]);
 
   const handleResizeStart = (
     e: React.MouseEvent,
@@ -1766,6 +1936,12 @@ export const EditorProvider = ({
   const clearContentFocusRequest = () => setContentFocusRequest(null);
 
   const startInlineEditing = (screenshotId: string, textId: string) => {
+    if (
+      inlineEditing?.screenshotId === screenshotId &&
+      inlineEditing.textId === textId
+    ) {
+      return;
+    }
     if (activeScreenshotId !== screenshotId) {
       setActiveScreenshotIdState(screenshotId);
     }
@@ -2484,6 +2660,9 @@ export const EditorProvider = ({
         activeProjectId,
         activeProject,
         createProject,
+        createProjectOfKind,
+        createProjectFromTemplate,
+        projectKind,
         renameProject,
         deleteProject,
         switchProject,
@@ -2515,7 +2694,6 @@ export const EditorProvider = ({
         toggleExportSizeId,
         applyExportPack,
         assetKind,
-        setAssetKind,
         screenshots,
         setScreenshots,
         activeScreenshotId,

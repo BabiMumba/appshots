@@ -14,6 +14,11 @@ import { Toolbar } from "./Toolbar";
 import { Filmstrip } from "./Filmstrip";
 import { ScreenshotCard } from "./ScreenshotCard";
 import { TextFormatBar } from "./TextFormatBar";
+import {
+  resolveZoomScale,
+  stepZoom,
+  type CanvasZoomValue,
+} from "./CanvasZoomControls";
 import { useResizeObserver } from "./useResizeObserver";
 import { cloneDeviceInstance } from "../../lib/device-instances";
 import {
@@ -79,11 +84,62 @@ export const CanvasPreview = () => {
     updateText,
     removeText,
     duplicateText,
+    assetKind,
   } = useEditor();
 
+  const isFeature = assetKind === "feature";
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const screensRowRef = useRef<HTMLDivElement>(null);
   const [previewGapPercent, setPreviewGapPercent] = useState(0);
+  const [canvasZoom, setCanvasZoom] = useState<CanvasZoomValue>("fit");
+  const [fitScale, setFitScale] = useState(0.5);
+
+  // Reset to fit when entering feature mode / size changes
+  useEffect(() => {
+    if (isFeature) setCanvasZoom("fit");
+  }, [isFeature, exportSize.id]);
+
+  // Measure viewport → fit scale for the 1024×500 artboard
+  useEffect(() => {
+    if (!isFeature) return;
+    const el = canvasContainerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const pad = 64;
+      const w = Math.max(120, el.clientWidth - pad);
+      const h = Math.max(80, el.clientHeight - pad);
+      const next = Math.min(
+        w / exportSize.width,
+        h / exportSize.height,
+        1.25,
+      );
+      setFitScale(Math.max(0.15, next));
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isFeature, exportSize.width, exportSize.height, canvasContainerRef]);
+
+  // Ctrl/Meta + wheel zoom on the feature artboard
+  useEffect(() => {
+    if (!isFeature) return;
+    const el = canvasContainerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const current = resolveZoomScale(canvasZoom, fitScale);
+      const direction: 1 | -1 = e.deltaY < 0 ? 1 : -1;
+      setCanvasZoom(stepZoom(current, direction, 0.2, 2));
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [isFeature, canvasZoom, fitScale, canvasContainerRef]);
 
   useResizeObserver({
     elementRef: previewRef,
@@ -110,6 +166,7 @@ export const CanvasPreview = () => {
 
   // Keep the active screenshot card in view when switching via filmstrip / keys
   useEffect(() => {
+    if (isFeature) return;
     const card = screensRowRef.current?.querySelector<HTMLElement>(
       `[data-screenshot-id="${activeScreenshotId}"]`,
     );
@@ -118,7 +175,7 @@ export const CanvasPreview = () => {
       inline: "nearest",
       block: "nearest",
     });
-  }, [activeScreenshotId]);
+  }, [activeScreenshotId, isFeature]);
 
   const activeIndex = screenshots.findIndex((s) => s.id === activeScreenshotId);
 
@@ -241,9 +298,23 @@ export const CanvasPreview = () => {
     setContextMenu(null);
   };
 
+  const effectiveZoom = resolveZoomScale(canvasZoom, fitScale);
+  const featureArtboardW = Math.round(exportSize.width * effectiveZoom);
+  const featureArtboardH = Math.round(exportSize.height * effectiveZoom);
+
+  // Feature mode: only the active artboard (one Play banner)
+  const visibleScreenshots = isFeature
+    ? screenshots.filter((s) => s.id === activeScreenshotId).slice(0, 1)
+    : screenshots;
+  const screensToRender =
+    visibleScreenshots.length > 0
+      ? visibleScreenshots
+      : screenshots.slice(0, 1);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <Toolbar
+        mode={assetKind}
         onAddScreenshot={addScreenshot}
         onAddText={addText}
         onDuplicateScreenshot={() => duplicateScreenshot()}
@@ -256,26 +327,33 @@ export const CanvasPreview = () => {
         canMoveLeft={activeIndex > 0}
         canMoveRight={activeIndex >= 0 && activeIndex < screenshots.length - 1}
         screenshotCount={screenshots.length}
+        zoom={canvasZoom}
+        fitScale={fitScale}
+        onZoomChange={setCanvasZoom}
       />
 
-      <Filmstrip
-        screenshots={screenshots}
-        activeScreenshotId={activeScreenshotId}
-        exportAspect={exportSize.width / exportSize.height}
-        onSelect={(id) => {
-          if (id === activeScreenshotId) return;
-          stopInlineEditing();
-          setActiveScreenshotId(id);
-          setContextMenu(null);
-        }}
-      />
+      {!isFeature && (
+        <Filmstrip
+          screenshots={screenshots}
+          activeScreenshotId={activeScreenshotId}
+          exportAspect={exportSize.width / exportSize.height}
+          onSelect={(id) => {
+            if (id === activeScreenshotId) return;
+            stopInlineEditing();
+            setActiveScreenshotId(id);
+            setContextMenu(null);
+          }}
+        />
+      )}
 
       <div className="h-12 shrink-0 border-b border-white/10 bg-[#161616]">
         {selectedText && selectedElement && selectedTextId ? (
           <TextFormatBar
             label="Text"
+            content={selectedText.content}
             fontFamily={selectedText.fontFamily}
             fontSize={selectedText.fontSize}
+            fontWeight={selectedText.fontWeight}
             textColor={selectedText.color}
             align={selectedText.align}
             uppercase={selectedText.uppercase}
@@ -293,6 +371,20 @@ export const CanvasPreview = () => {
               updateText(
                 selectedTextId,
                 { fontSize: size },
+                selectedElement.screenshotId,
+              )
+            }
+            onFontWeightChange={(weight) =>
+              updateText(
+                selectedTextId,
+                { fontWeight: weight },
+                selectedElement.screenshotId,
+              )
+            }
+            onContentChange={(html) =>
+              updateText(
+                selectedTextId,
+                { content: html },
                 selectedElement.screenshotId,
               )
             }
@@ -314,34 +406,45 @@ export const CanvasPreview = () => {
           />
         ) : (
           <div className="h-full flex items-center px-3 text-[11px] text-gray-600">
-            Select a text to format · Add Text in the toolbar · double-click to
-            edit
+            Select a text · click again or double-click to edit · Enter also works
           </div>
         )}
       </div>
 
       <div
         ref={canvasContainerRef}
-        className="flex-1 overflow-x-auto overflow-y-hidden bg-[#0a0a0a] p-6"
+        className={
+          isFeature
+            ? "flex-1 overflow-auto bg-[#0a0a0a]"
+            : "flex-1 overflow-x-auto overflow-y-hidden bg-[#0a0a0a] p-6"
+        }
         onClick={(e) => {
           if (e.target === e.currentTarget) safeDeselect();
         }}
       >
         <div
           ref={screensRowRef}
-          className="flex h-full min-w-max"
-          style={{ gap: PREVIEW_SCREEN_GAP_PX }}
+          className={
+            isFeature
+              ? "min-h-full min-w-full flex items-center justify-center p-8"
+              : "flex h-full min-w-max"
+          }
+          style={isFeature ? undefined : { gap: PREVIEW_SCREEN_GAP_PX }}
+          onClick={(e) => {
+            if (isFeature && e.target === e.currentTarget) safeDeselect();
+          }}
         >
-          {screenshots.map((screenshot, index) => {
+          {screensToRender.map((screenshot) => {
+            const index = screenshots.findIndex((s) => s.id === screenshot.id);
             const renderableDevices = getRenderableDevicesForScreenshot(
               screenshots,
-              index,
-              previewGapPercent,
+              Math.max(0, index),
+              isFeature ? 0 : previewGapPercent,
             );
             const renderableOverlays = getRenderableOverlaysForScreenshot(
               screenshots,
-              index,
-              previewGapPercent,
+              Math.max(0, index),
+              isFeature ? 0 : previewGapPercent,
             );
 
             return (
@@ -351,11 +454,13 @@ export const CanvasPreview = () => {
                 renderableDevices={renderableDevices}
                 renderableOverlays={renderableOverlays}
                 isActive={activeScreenshotId === screenshot.id}
-                canRemove={screenshots.length > 1}
+                canRemove={!isFeature && screenshots.length > 1}
                 selectedElement={selectedElement}
                 exportSize={exportSize}
                 previewRef={previewRef}
                 getBackgroundStyle={getBackgroundStyle}
+                artboardWidthPx={isFeature ? featureArtboardW : undefined}
+                artboardHeightPx={isFeature ? featureArtboardH : undefined}
                 onSelect={() => {
                   if (activeScreenshotId !== screenshot.id) {
                     stopInlineEditing();
