@@ -2,10 +2,10 @@
  * RightSidebar — devices, layout, content, background, overlays.
  */
 
+import { useEffect, useRef } from "react";
 import { useEditor } from "../../context/EditorContext";
 import { devices, gradientPresets } from "../../constants";
 import type { DeviceInstance } from "../../types";
-import { getDeviceSpecById } from "../../lib/device-instances";
 import { DeviceInstancesSection } from "./DeviceInstancesSection";
 import { ActiveDeviceSection } from "./ActiveDeviceSection";
 import { ScreenshotImageSection } from "./ScreenshotImageSection";
@@ -13,8 +13,20 @@ import { LayoutSection } from "./LayoutSection";
 import { ContentSection } from "./ContentSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { OverlayImagesSection } from "./OverlayImagesSection";
+import { ShapesSection } from "./ShapesSection";
+import { LayersPanel } from "./LayersPanel";
 import { SidebarSection } from "./SidebarSection";
 import { STYLES } from "./constants";
+
+function sectionIdForSelection(
+  type: "text" | "image" | "device" | "shape" | undefined,
+): string | null {
+  if (type === "shape") return "shapes";
+  if (type === "image") return "overlays";
+  if (type === "text") return "content";
+  if (type === "device") return "layout";
+  return null;
+}
 
 export const RightSidebar = () => {
   const {
@@ -30,8 +42,15 @@ export const RightSidebar = () => {
     setSelectedElement,
     removeOverlayImage,
     updateOverlayImageSize,
+    updateOverlayImageOpacity,
     updateOverlayImageLayer,
     updateOverlayImageShadow,
+    addShape,
+    removeShape,
+    updateShape,
+    setShapeFillImage,
+    bringShapeForward,
+    sendShapeBackward,
     addDevice,
     selectDevice,
     removeDevice,
@@ -39,6 +58,9 @@ export const RightSidebar = () => {
     sendDeviceBackward,
     bringImageForward,
     sendImageBackward,
+    moveElementLayer,
+    toggleElementHidden,
+    toggleElementLocked,
     screenshots,
     applyStyleToAllScreens,
     selectedDeviceId,
@@ -46,10 +68,25 @@ export const RightSidebar = () => {
     selectedColorId,
     setSelectedColorId,
     selectedDevice,
-    exportSize,
   } = useEditor();
 
   const canApplyToAll = screenshots.length > 1;
+  const sidebarRef = useRef<HTMLElement>(null);
+  const lastScrolledKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    const sectionId = sectionIdForSelection(selectedElement?.type);
+    if (!sectionId || !sidebarRef.current) return;
+
+    const key = `${selectedElement?.type}:${selectedElement?.id ?? ""}:${selectedElement?.screenshotId ?? ""}`;
+    if (lastScrolledKey.current === key) return;
+    lastScrolledKey.current = key;
+
+    const target = sidebarRef.current.querySelector(
+      `[data-sidebar-section="${sectionId}"]`,
+    );
+    target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selectedElement]);
 
   const patchActiveDevice = (updates: Partial<DeviceInstance>) => {
     if (!activeDevice) return;
@@ -65,19 +102,8 @@ export const RightSidebar = () => {
     setSelectedColorId(defaultColorId);
   };
 
-  const deviceSpec = activeDevice
-    ? getDeviceSpecById(activeDevice.deviceId)
-    : selectedDevice;
-  const exportAspect = exportSize.width / exportSize.height;
-  const deviceAspect = deviceSpec.width / deviceSpec.height;
-  const aspectDelta = Math.abs(exportAspect - deviceAspect) / exportAspect;
-  const exportAspectHint =
-    aspectDelta > 0.12
-      ? `Preview export is ${exportSize.width}×${exportSize.height}. This frame’s aspect differs — scale/position may look different at export.`
-      : null;
-
   return (
-    <aside className={STYLES.sidebar}>
+    <aside ref={sidebarRef} className={STYLES.sidebar}>
       <div className={STYLES.content}>
         <DeviceInstancesSection
           screenshot={activeScreenshot}
@@ -95,7 +121,6 @@ export const RightSidebar = () => {
               selectedDeviceId={selectedDeviceId}
               selectedColorId={selectedColorId}
               selectedDevice={selectedDevice}
-              exportAspectHint={exportAspectHint}
               onDeviceSelect={handleDeviceSelect}
               onColorSelect={setSelectedColorId}
             />
@@ -140,6 +165,18 @@ export const RightSidebar = () => {
           onApplyToAll={() => applyStyleToAllScreens("background")}
         />
 
+        <ShapesSection
+          screenshot={activeScreenshot}
+          selectedElement={selectedElement}
+          onSelectElement={setSelectedElement}
+          onAddShape={addShape}
+          onRemoveShape={removeShape}
+          onUpdateShape={updateShape}
+          onSetFillImage={setShapeFillImage}
+          onBringForward={bringShapeForward}
+          onSendBackward={sendShapeBackward}
+        />
+
         <OverlayImagesSection
           screenshot={activeScreenshot}
           selectedElement={selectedElement}
@@ -149,10 +186,33 @@ export const RightSidebar = () => {
           onAddIcon={addIcon}
           onRemoveImage={removeOverlayImage}
           onUpdateSize={updateOverlayImageSize}
+          onUpdateOpacity={updateOverlayImageOpacity}
           onUpdateLayer={updateOverlayImageLayer}
           onUpdateShadow={updateOverlayImageShadow}
           onBringForward={bringImageForward}
           onSendBackward={sendImageBackward}
+        />
+
+        <LayersPanel
+          screenshot={activeScreenshot}
+          selectedElement={selectedElement}
+          onSelect={setSelectedElement}
+          onReorder={(key, action) => {
+            const parsed = key.includes(":")
+              ? {
+                  type: key.split(":")[0] as
+                    | "text"
+                    | "image"
+                    | "device"
+                    | "shape",
+                  id: key.slice(key.indexOf(":") + 1),
+                }
+              : null;
+            if (!parsed) return;
+            moveElementLayer(parsed.type, parsed.id, action);
+          }}
+          onToggleHidden={toggleElementHidden}
+          onToggleLocked={toggleElementLocked}
         />
       </div>
     </aside>

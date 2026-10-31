@@ -1,9 +1,14 @@
+import { useState } from "react";
 import { LeftSidebar } from "./LeftSidebar";
 import { RightSidebar } from "./RightSidebar";
 import { CanvasPreview } from "./CanvasPreview";
 import { FontPicker } from "./FontPicker";
 import { ExportSuccessModal } from "./ExportSuccessModal";
 import { useEditor } from "../context/EditorContext";
+import {
+  readLeftSidebarOpen,
+  writeLeftSidebarOpen,
+} from "../lib/left-sidebar-pref";
 
 export const EditorLayout = () => {
   const {
@@ -20,6 +25,16 @@ export const EditorLayout = () => {
     updateText,
     renameProject,
   } = useEditor();
+
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(readLeftSidebarOpen);
+
+  const toggleLeftSidebar = () => {
+    setLeftSidebarOpen((open) => {
+      const next = !open;
+      writeLeftSidebarOpen(next);
+      return next;
+    });
+  };
 
   const selectedText =
     selectedElement?.type === "text" && selectedElement.id
@@ -51,9 +66,9 @@ export const EditorLayout = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0a0a] text-white overflow-hidden">
-      <div className="flex flex-1 overflow-hidden">
-        <LeftSidebar />
+    <div className="flex flex-col h-screen bg-[var(--ed-bg)] text-[var(--ed-fg)] overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-w-0">
+        <LeftSidebar open={leftSidebarOpen} onToggle={toggleLeftSidebar} />
         <CanvasPreview />
         <RightSidebar />
         <FontPicker

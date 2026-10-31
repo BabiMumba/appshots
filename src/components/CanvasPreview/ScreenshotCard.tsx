@@ -7,56 +7,81 @@ import type { Screenshot, ExportSize, SelectedElement } from "../../types";
 import type {
   RenderableDevice,
   RenderableOverlay,
+  RenderableShape,
 } from "../../lib/device-overflow";
 import { RemoveButton } from "./RemoveButton";
 import { OverlayImage } from "./OverlayImage";
+import { ShapeBlock } from "./ShapeBlock";
 import { TextElement } from "./TextElement";
 import { DeviceContainer } from "./DeviceContainer";
 import { ElementQuickActions } from "./ElementQuickActions";
+import { SnapGuides } from "./SnapGuides";
 import { isElementSelected } from "./utils";
 import { ensureLayerOrder, zIndexForLayer } from "../../lib/layer-order";
 import { scaleExportPxToPreview } from "../../lib/design-scale";
 import { useResizeObserver } from "./useResizeObserver";
+import type { ResizeHandle } from "./SelectionHandles";
+import type { SnapGuide } from "../../lib/snap";
 
 interface ScreenshotCardProps {
   screenshot: Screenshot;
   renderableDevices: RenderableDevice[];
   renderableOverlays: RenderableOverlay[];
+  renderableShapes: RenderableShape[];
   isActive: boolean;
   canRemove: boolean;
   selectedElement: SelectedElement | null;
   exportSize: ExportSize;
   previewRef: RefObject<HTMLDivElement | null>;
   getBackgroundStyle: (screenshot: Screenshot) => string;
+  /** Active-card snap lines while dragging */
+  snapGuides?: SnapGuide[];
   onSelect: () => void;
   onRemove: () => void;
   onDeselect: () => void;
   onElementMouseDown: (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id?: string,
   ) => void;
   onElementMouseUp: () => void;
   onResizeStart: (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id: string | undefined,
-    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
+    handle: ResizeHandle,
+  ) => void;
+  /** Migrate legacy letterboxed overlay frames (no history) */
+  onCorrectOverlayFrame?: (
+    screenshotId: string,
+    imageId: string,
+    heightPercent: number,
   ) => void;
   onRotateStart: (
     e: React.MouseEvent,
-    type: "image" | "device",
+    type: "image" | "device" | "shape",
     screenshotId: string,
     id: string,
   ) => void;
   onDeviceDoubleClick: (screenshotId: string, deviceId: string) => void;
+  croppingShapeId?: string | null;
+  onShapeDoubleClick?: (screenshotId: string, shapeId: string) => void;
+  onShapeImageOffset?: (
+    screenshotId: string,
+    shapeId: string,
+    offsetX: number,
+    offsetY: number,
+  ) => void;
+  onExitShapeCrop?: () => void;
   onScreenImageFile: (
     file: File,
     screenshotId: string,
     deviceId: string,
   ) => void;
+  /** Drop on empty canvas (not a device) → overlay */
+  onCanvasImageDrop?: (file: File, screenshotId: string) => void;
   editingTextId: string | null;
   onTextDoubleClick: (textId: string) => void;
   onTextContentChange: (textId: string, html: string) => void;
@@ -65,7 +90,7 @@ interface ScreenshotCardProps {
   onDeleteElement: () => void;
   onElementContextMenu: (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id?: string,
   ) => void;
@@ -81,21 +106,29 @@ export const ScreenshotCard = ({
   screenshot,
   renderableDevices,
   renderableOverlays,
+  renderableShapes,
   isActive,
   canRemove,
   selectedElement,
   exportSize,
   previewRef,
   getBackgroundStyle,
+  snapGuides = [],
   onSelect,
   onRemove,
   onDeselect,
   onElementMouseDown,
   onElementMouseUp,
   onResizeStart,
+  onCorrectOverlayFrame,
   onRotateStart,
   onDeviceDoubleClick,
+  croppingShapeId = null,
+  onShapeDoubleClick,
+  onShapeImageOffset,
+  onExitShapeCrop,
   onScreenImageFile,
+  onCanvasImageDrop,
   editingTextId,
   onTextDoubleClick,
   onTextContentChange,
@@ -109,7 +142,17 @@ export const ScreenshotCard = ({
   const layerOrder = ensureLayerOrder(screenshot);
   const localRef = useRef<HTMLDivElement | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
+  const [canvasDragOver, setCanvasDragOver] = useState(false);
   const texts = screenshot.texts ?? [];
+
+  const isImageDrag = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types).includes("Files");
+
+  const takeDroppedImage = (e: React.DragEvent): File | null => {
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return null;
+    return file;
+  };
 
   const setCardRef = (node: HTMLDivElement | null) => {
     localRef.current = node;
@@ -170,7 +213,8 @@ export const ScreenshotCard = ({
         ? {
             x: t.x,
             y: t.y,
-            halfWidth: t.width / 2,
+            // Box hugs content — don't offset the chip by max-wrap width
+            halfWidth: Math.min(10, t.width / 2),
             clearTopCenter: false,
           }
         : null;
@@ -197,6 +241,32 @@ export const ScreenshotCard = ({
             x: img.x,
             y: img.y,
             halfWidth: img.width / 2,
+            clearTopCenter: true,
+          }
+        : null;
+    }
+    if (selectedElement.type === "shape" && selectedElement.id) {
+      const local = renderableShapes.find(
+        (o) =>
+          o.shape.id === selectedElement.id &&
+          o.ownerScreenshotId === selectedElement.screenshotId,
+      );
+      if (local) {
+        return {
+          x: local.localX,
+          y: local.shape.y,
+          halfWidth: local.shape.width / 2,
+          clearTopCenter: true,
+        };
+      }
+      const shape = (screenshot.shapes ?? []).find(
+        (s) => s.id === selectedElement.id,
+      );
+      return shape
+        ? {
+            x: shape.x,
+            y: shape.y,
+            halfWidth: shape.width / 2,
             clearTopCenter: true,
           }
         : null;
@@ -245,9 +315,37 @@ export const ScreenshotCard = ({
           onDeselect();
         }
       }}
+      onDragEnter={(e) => {
+        if (!isImageDrag(e) || !onCanvasImageDrop) return;
+        e.preventDefault();
+        setCanvasDragOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!isImageDrag(e) || !onCanvasImageDrop) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setCanvasDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setCanvasDragOver(false);
+      }}
+      onDrop={(e) => {
+        // Device screens stopPropagation — this handles canvas / empty area
+        setCanvasDragOver(false);
+        if (!onCanvasImageDrop) return;
+        const file = takeDroppedImage(e);
+        if (!file) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect();
+        onCanvasImageDrop(file, screenshot.id);
+      }}
       className={`relative rounded-xl cursor-pointer transition-all shrink-0 ${
         artboardWidthPx ? "" : "h-full"
-      } ${isActive ? "opacity-100" : "opacity-70 hover:opacity-100"}`}
+      } ${isActive ? "opacity-100" : "opacity-70 hover:opacity-100"} ${
+        canvasDragOver ? "ring-2 ring-sky-400/60 ring-offset-2 ring-offset-[#0a0a0a]" : ""
+      }`}
       style={{
         ...(artboardWidthPx && artboardHeightPx
           ? {
@@ -285,6 +383,7 @@ export const ScreenshotCard = ({
 
         {renderableOverlays.map(
           ({ image, localX, ownerScreenshotId, layerZIndex }) => {
+            if (image.hidden) return null;
             const selected = isElementSelected(
               selectedElement,
               "image",
@@ -296,6 +395,9 @@ export const ScreenshotCard = ({
                 key={`${ownerScreenshotId}-${image.id}`}
                 image={image}
                 renderX={localX}
+                canvasAspect={
+                  exportSize.width / Math.max(exportSize.height, 1)
+                }
                 zIndex={layerZIndex}
                 isSelected={selected}
                 isInteractive
@@ -319,12 +421,79 @@ export const ScreenshotCard = ({
                 onContextMenu={(e) =>
                   onElementContextMenu(e, "image", ownerScreenshotId, image.id)
                 }
+                onCorrectFrame={
+                  onCorrectOverlayFrame
+                    ? (heightPercent) =>
+                        onCorrectOverlayFrame(
+                          ownerScreenshotId,
+                          image.id,
+                          heightPercent,
+                        )
+                    : undefined
+                }
+              />
+            );
+          },
+        )}
+
+        {renderableShapes.map(
+          ({ shape, localX, ownerScreenshotId, layerZIndex }) => {
+            if (shape.hidden) return null;
+            const selected = isElementSelected(
+              selectedElement,
+              "shape",
+              ownerScreenshotId,
+              shape.id,
+            );
+            return (
+              <ShapeBlock
+                key={`${ownerScreenshotId}-${shape.id}`}
+                shape={{
+                  ...shape,
+                  imageOffsetX: shape.imageOffsetX ?? 0,
+                  imageOffsetY: shape.imageOffsetY ?? 0,
+                }}
+                renderX={localX}
+                zIndex={layerZIndex}
+                isSelected={selected}
+                isInteractive
+                showHandles={selected}
+                isCropping={croppingShapeId === shape.id}
+                shadowScale={previewScale}
+                onMouseDown={(e) =>
+                  onElementMouseDown(e, "shape", ownerScreenshotId, shape.id)
+                }
+                onResizeStart={(e, handle) =>
+                  onResizeStart(
+                    e,
+                    "shape",
+                    ownerScreenshotId,
+                    shape.id,
+                    handle,
+                  )
+                }
+                onRotateStart={(e) =>
+                  onRotateStart(e, "shape", ownerScreenshotId, shape.id)
+                }
+                onContextMenu={(e) =>
+                  onElementContextMenu(e, "shape", ownerScreenshotId, shape.id)
+                }
+                onDoubleClick={() => {
+                  if (shape.fillMode === "image" && shape.fillImage) {
+                    onShapeDoubleClick?.(ownerScreenshotId, shape.id);
+                  }
+                }}
+                onImageOffsetChange={(ox, oy) =>
+                  onShapeImageOffset?.(ownerScreenshotId, shape.id, ox, oy)
+                }
+                onExitCrop={onExitShapeCrop}
               />
             );
           },
         )}
 
         {texts.map((text) => {
+          if (text.hidden) return null;
           const selected =
             isActive &&
             isElementSelected(selectedElement, "text", screenshot.id, text.id);
@@ -377,6 +546,7 @@ export const ScreenshotCard = ({
 
         {renderableDevices.map(
           ({ device, localX, ownerScreenshotId, layerZIndex }) => {
+            if (device.hidden) return null;
             const selected = isElementSelected(
               selectedElement,
               "device",
@@ -389,6 +559,7 @@ export const ScreenshotCard = ({
               <DeviceContainer
                 key={`${ownerScreenshotId}-${device.id}`}
                 device={device}
+                ownerScreenshotId={ownerScreenshotId}
                 renderX={localX}
                 zIndex={layerZIndex}
                 isSelected={selected}
@@ -413,11 +584,8 @@ export const ScreenshotCard = ({
                 onDoubleClick={() =>
                   onDeviceDoubleClick(ownerScreenshotId, device.id)
                 }
-                onScreenImageFile={
-                  device.screenshotSrc
-                    ? undefined
-                    : (file) =>
-                        onScreenImageFile(file, ownerScreenshotId, device.id)
+                onScreenImageFile={(file) =>
+                  onScreenImageFile(file, ownerScreenshotId, device.id)
                 }
                 onContextMenu={(e) =>
                   onElementContextMenu(
@@ -431,6 +599,8 @@ export const ScreenshotCard = ({
             );
           },
         )}
+
+        {isActive && <SnapGuides guides={snapGuides} />}
       </div>
 
       {/* Chrome outside the clip: remove + quick actions stay readable */}

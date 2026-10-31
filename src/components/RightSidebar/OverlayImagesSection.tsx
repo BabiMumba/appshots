@@ -30,6 +30,7 @@ interface OverlayImagesSectionProps {
   onAddIcon: (src: string, name: string) => void;
   onRemoveImage: (id: string) => void;
   onUpdateSize: (id: string, size: number) => void;
+  onUpdateOpacity: (id: string, opacity: number) => void;
   onUpdateLayer: (id: string, layer: "behind" | "front") => void;
   onUpdateShadow: (id: string, shadow: Partial<ShadowConfig>) => void;
   onBringForward: (id: string) => void;
@@ -45,6 +46,7 @@ export const OverlayImagesSection = ({
   onAddIcon,
   onRemoveImage,
   onUpdateSize,
+  onUpdateOpacity,
   onUpdateLayer,
   onUpdateShadow,
   onBringForward,
@@ -64,7 +66,7 @@ export const OverlayImagesSection = ({
   };
 
   return (
-    <SidebarSection title="Overlays">
+    <SidebarSection title="Overlays" sectionId="overlays">
       <div className="space-y-3">
         <input
           ref={overlayImageInputRef}
@@ -137,6 +139,9 @@ export const OverlayImagesSection = ({
               <OverlayImageProperties
                 image={selectedImage}
                 onSizeChange={(size) => onUpdateSize(selectedImage.id, size)}
+                onOpacityChange={(opacity) =>
+                  onUpdateOpacity(selectedImage.id, opacity)
+                }
                 onLayerChange={(layer) =>
                   onUpdateLayer(selectedImage.id, layer)
                 }

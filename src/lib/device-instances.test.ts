@@ -12,12 +12,13 @@ describe("createDeviceInstance", () => {
     expect(device.screenshotSrc).toBeNull();
     expect(device.x).toBe(50);
     expect(device.y).toBe(30);
-    expect(device.scale).toBe(85);
+    expect(device.scale).toBe(70);
     expect(device.rotation).toBe(0);
     expect(device.style).toBe("flat");
-    expect(device.rotateY).toBe(-15);
-    expect(device.rotateX).toBe(5);
+    expect(device.rotateY).toBe(-18);
+    expect(device.rotateX).toBe(6);
     expect(device.shadow).toEqual(DEFAULT_DEVICE_SHADOW);
+    expect(device.shadow.enabled).toBe(false);
   });
 });
 

@@ -1,6 +1,48 @@
 @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
+/* Editor chrome tokens — toggled via documentElement[data-theme] */
+:root,
+html[data-theme="dark"] {
+  --ed-bg: #0a0a0a;
+  --ed-panel: #141414;
+  --ed-surface: #1e1e1e;
+  --ed-muted: #2a2a2a;
+  --ed-muted-hover: #333333;
+  --ed-border: rgba(255, 255, 255, 0.1);
+  --ed-fg: #ffffff;
+  --ed-fg-muted: #9ca3af;
+  --ed-canvas: #0a0a0a;
+  --ed-toolbar: #141414;
+  --ed-chip: #161616;
+  --ed-inverse: #ffffff;
+  --ed-inverse-fg: #0a0a0a;
+  --ed-ring: rgba(255, 255, 255, 0.9);
+  --ed-accent-soft: rgba(14, 165, 233, 0.22);
+  --ed-accent-fg: #7dd3fc;
+  --ed-bar-well: rgba(0, 0, 0, 0.25);
+}
+
+html[data-theme="light"] {
+  --ed-bg: #e4e7ec;
+  --ed-panel: #f7f8fa;
+  --ed-surface: #ffffff;
+  --ed-muted: #eef0f3;
+  --ed-muted-hover: #e2e5ea;
+  --ed-border: rgba(15, 23, 42, 0.1);
+  --ed-fg: #111827;
+  --ed-fg-muted: #6b7280;
+  --ed-canvas: #cfd6df;
+  --ed-toolbar: #f7f8fa;
+  --ed-chip: #eef0f3;
+  --ed-inverse: #111827;
+  --ed-inverse-fg: #ffffff;
+  --ed-ring: rgba(15, 23, 42, 0.85);
+  --ed-accent-soft: rgba(2, 132, 199, 0.16);
+  --ed-accent-fg: #0369a1;
+  --ed-bar-well: rgba(15, 23, 42, 0.06);
+}
+
 body {
   @apply m-0;
   font-family: "Sora", system-ui, sans-serif;

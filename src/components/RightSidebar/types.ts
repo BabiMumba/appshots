@@ -14,6 +14,8 @@ export type { SelectedElement };
 export interface SidebarSectionProps {
   title: string;
   children: React.ReactNode;
+  /** Anchor id for scroll-into-view when selection changes */
+  sectionId?: string;
 }
 
 /**
@@ -70,6 +72,7 @@ export interface OverlayImageItemProps {
 export interface OverlayImagePropertiesProps {
   image: ImageOverlay;
   onSizeChange: (size: number) => void;
+  onOpacityChange: (opacity: number) => void;
   onLayerChange: (layer: "behind" | "front") => void;
   onShadowToggle: () => void;
   onShadowBlurChange: (blur: number) => void;

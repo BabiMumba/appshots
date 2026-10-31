@@ -55,7 +55,7 @@ export const ContentSection = ({
 
   if (!text || !textId) {
     return (
-      <SidebarSection title="Content">
+      <SidebarSection title="Content" sectionId="content">
         <p className="text-[11px] text-gray-500 leading-relaxed mb-3">
           Select a text on the canvas, or add a new one.
         </p>
@@ -78,7 +78,7 @@ export const ContentSection = ({
   }
 
   return (
-    <SidebarSection title="Content">
+    <SidebarSection title="Content" sectionId="content">
       <div ref={editorWrapRef}>
         <label className="block text-xs text-gray-400 mb-1">Selected text</label>
         <RichTextEditor

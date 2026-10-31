@@ -14,12 +14,19 @@ import type {
   ExportSize,
   Screenshot,
   ImageOverlay,
+  ShapeOverlay,
+  ShapeForm,
   ShadowConfig,
   Project,
   ProjectKind,
   SelectedElement,
   TextAlign,
 } from "../types";
+import {
+  applyShapeForm,
+  createDefaultShape,
+  isLockedAspectShape,
+} from "../lib/shapes";
 import {
   devices,
   exportSizes,
@@ -44,6 +51,10 @@ import {
   layerKeyFor,
   moveLayerKey,
 } from "../lib/layer-order";
+import {
+  overlayHeightForImageAspect,
+} from "../lib/overlay-frame";
+import type { ResizeHandle } from "../components/CanvasPreview/SelectionHandles";
 import {
   createDefaultTexts,
   createTextOverlay,
@@ -80,6 +91,19 @@ import {
   writeProjectToHandle,
   type AppshotsFileHandle,
 } from "../lib/project-file";
+import {
+  readSnapEnabled,
+  writeSnapEnabled,
+  snapDragPosition,
+  type SnapGuide,
+} from "../lib/snap";
+import { collectSnapPeers } from "../lib/snap-peers";
+import { DEFAULT_LOCALE, detectDefaultLocale } from "../lib/locales";
+import {
+  applyLocaleToScreenshots,
+  screenshotsForLocaleExport,
+  withTextTranslation,
+} from "../lib/text-i18n";
 
 const withSyncedTexts = (
   texts: TextOverlay[],
@@ -202,7 +226,7 @@ interface EditorContextType {
   moveScreenshot: (id: string, direction: -1 | 1) => void;
   handleElementMouseDown: (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id?: string,
   ) => void;
@@ -210,14 +234,14 @@ interface EditorContextType {
   handleElementMouseUp: () => void;
   handleResizeStart: (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id: string | undefined,
-    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
+    handle: ResizeHandle,
   ) => void;
   handleRotateStart: (
     e: React.MouseEvent,
-    type: "image" | "device",
+    type: "image" | "device" | "shape",
     screenshotId: string,
     id: string,
   ) => void;
@@ -229,15 +253,26 @@ interface EditorContextType {
   ) => void;
   updateTextAlign: (textId: string, align: TextAlign) => void;
   addOverlayImage: (file: File) => void;
+  /** Drop on canvas (not device) → overlay; optional target screenshot */
+  addOverlayImageToScreenshot: (file: File, screenshotId?: string) => void;
+  /** Convert overlay into the screen background image (and remove overlay) */
+  promoteOverlayToBackground: (imageId: string, screenshotId?: string) => void;
   addIcon: (src: string, name: string) => void;
   removeOverlayImage: (imageId: string) => void;
   updateOverlayImageSize: (imageId: string, widthPercent: number) => void;
+  updateOverlayImageOpacity: (imageId: string, opacity: number) => void;
   updateOverlayImageLayer: (imageId: string, layer: "behind" | "front") => void;
   updateOverlayImageRotation: (imageId: string, rotation: number) => void;
   updateOverlayImageShadow: (
     imageId: string,
     shadow: Partial<ShadowConfig>,
   ) => void;
+  addShape: (form?: ShapeForm) => void;
+  removeShape: (shapeId: string) => void;
+  updateShape: (shapeId: string, updates: Partial<ShapeOverlay>) => void;
+  setShapeFillImage: (shapeId: string, file: File) => void;
+  bringShapeForward: (shapeId: string) => void;
+  sendShapeBackward: (shapeId: string) => void;
   addDevice: () => void;
   selectDevice: (deviceId: string) => void;
   removeDevice: (deviceId: string) => void;
@@ -254,6 +289,20 @@ interface EditorContextType {
     id: string | undefined,
     action: "forward" | "backward" | "front" | "back",
   ) => void;
+  toggleElementHidden: (el: SelectedElement) => void;
+  toggleElementLocked: (el: SelectedElement) => void;
+  /** Snap-to-align while dragging */
+  snapEnabled: boolean;
+  setSnapEnabled: (enabled: boolean) => void;
+  snapGuides: SnapGuide[];
+  /** Project locales (store listing copy) */
+  locales: string[];
+  activeLocale: string;
+  setActiveLocale: (code: string) => void;
+  addLocale: (code: string) => void;
+  removeLocale: (code: string) => void;
+  /** Change the only / primary listing language (e.g. en → fr) */
+  replacePrimaryLocale: (code: string) => void;
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
   /** Store image in IndexedDB and return a session object URL. */
   ingestImageFile: (file: File) => Promise<string>;
@@ -305,11 +354,13 @@ const createDefaultScreenshot = (
     customGradient: null,
     backgroundImage: null,
     overlayImages: [],
+    shapes: [],
     devices: [defaultDevice],
     activeDeviceId: defaultDevice.id,
     layerOrder: buildDefaultLayerOrder({
       devices: [defaultDevice],
       overlayImages: [],
+      shapes: [],
       texts,
     }),
   };
@@ -340,7 +391,22 @@ const normalizeScreenshot = (
     fallbackColorId,
   );
 
-  const overlayImages = screenshot.overlayImages ?? [];
+  const overlayImages = (screenshot.overlayImages ?? []).map((img) => ({
+    ...img,
+    opacity: typeof img.opacity === "number" ? img.opacity : 100,
+  }));
+  const shapes = (screenshot.shapes ?? []).map((s) => ({
+    ...s,
+    imageOffsetX: typeof s.imageOffsetX === "number" ? s.imageOffsetX : 0,
+    imageOffsetY: typeof s.imageOffsetY === "number" ? s.imageOffsetY : 0,
+    opacity: typeof s.opacity === "number" ? s.opacity : 100,
+    cornerRadius:
+      typeof s.cornerRadius === "number"
+        ? s.cornerRadius
+        : s.form === "circle"
+          ? 50
+          : 4,
+  }));
   const texts = resolveTexts({
     ...screenshot,
     headlineFontSize:
@@ -361,6 +427,7 @@ const normalizeScreenshot = (
     customGradient: screenshot.customGradient ?? null,
     backgroundImage: screenshot.backgroundImage ?? null,
     overlayImages,
+    shapes,
     devices: deviceInstances,
     activeDeviceId,
     layerOrder: [],
@@ -397,6 +464,15 @@ const normalizeProject = (project: Project): Project => {
   const kind =
     project.kind ?? inferProjectKindFromExportSizeId(exportSizeId);
 
+  const locales =
+    project.locales && project.locales.length > 0
+      ? project.locales
+      : [DEFAULT_LOCALE];
+  const activeLocale =
+    project.activeLocale && locales.includes(project.activeLocale)
+      ? project.activeLocale
+      : locales[0];
+
   return {
     ...project,
     kind,
@@ -408,6 +484,8 @@ const normalizeProject = (project: Project): Project => {
     activeScreenshotId:
       normalizedScreenshots.find((s) => s.id === project.activeScreenshotId)?.id ??
       normalizedScreenshots[0].id,
+    locales,
+    activeLocale,
   };
 };
 
@@ -431,7 +509,21 @@ function deviceDefaultsForKind(kind: ProjectKind): {
     return {
       deviceId: phone.id,
       colorId: phone.colors[0].id,
-      deviceOverrides: { x: 72, y: 52, scale: 48, style: "3d" },
+      deviceOverrides: {
+        x: 78,
+        y: 52,
+        scale: 28,
+        style: "3d",
+        rotateY: -22,
+        rotateX: 4,
+        shadow: {
+          enabled: false,
+          color: "#000000",
+          blur: 40,
+          offsetX: 0,
+          offsetY: 20,
+        },
+      },
     };
   }
   const phone = devices[0];
@@ -484,6 +576,7 @@ const createDefaultProject = (
     };
   }
 
+  const primaryLocale = detectDefaultLocale();
   return {
     id: generateId(),
     name: name || projectKindLabel(kind),
@@ -496,6 +589,8 @@ const createDefaultProject = (
     exportSizeId,
     exportSizeIds: [exportSizeId],
     activeScreenshotId: defaultScreenshot.id,
+    locales: [primaryLocale],
+    activeLocale: primaryLocale,
   };
 };
 
@@ -585,11 +680,12 @@ export const EditorProvider = ({
   const skipHistory = useRef(false);
   const interactionMode = useRef<"none" | "drag" | "resize" | "rotate">("none");
   const resizeMeta = useRef<{
-    handle: "e" | "w" | "se" | "sw" | "ne" | "nw";
+    handle: ResizeHandle;
     startWidth: number;
     startHeight: number;
     startScale: number;
     startX: number;
+    startY: number;
     startRotation: number;
   } | null>(null);
   const [activeScreenshotId, setActiveScreenshotIdState] = useState(
@@ -598,11 +694,26 @@ export const EditorProvider = ({
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(
     null,
   );
+  const [snapEnabled, setSnapEnabledState] = useState(readSnapEnabled);
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  const setSnapEnabled = (enabled: boolean) => {
+    setSnapEnabledState(enabled);
+    writeSnapEnabled(enabled);
+  };
+
+  const locales = activeProject.locales?.length
+    ? activeProject.locales
+    : [DEFAULT_LOCALE];
+  const activeLocale =
+    activeProject.activeLocale && locales.includes(activeProject.activeLocale)
+      ? activeProject.activeLocale
+      : locales[0];
 
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
   const dragStartElementPos = useRef({ x: 0, y: 0 });
   const dragContainerSize = useRef({ width: 0, height: 0 });
+  const lastPointer = useRef({ x: 0, y: 0 });
   const rafId = useRef<number | null>(null);
   const pendingUpdate = useRef<{ x: number; y: number } | null>(null);
 
@@ -645,6 +756,8 @@ export const EditorProvider = ({
               exportSizeId,
               exportSizeIds,
               activeScreenshotId,
+              locales: p.locales?.length ? p.locales : [DEFAULT_LOCALE],
+              activeLocale: p.activeLocale ?? DEFAULT_LOCALE,
               updatedAt: Date.now(),
             }
           : p,
@@ -1173,6 +1286,8 @@ export const EditorProvider = ({
     exportSizeId,
     exportSizeIds,
     activeScreenshotId,
+    locales,
+    activeLocale,
     updatedAt: Date.now(),
   });
 
@@ -1399,11 +1514,13 @@ export const EditorProvider = ({
         : null,
       backgroundImage: activeScreenshot.backgroundImage,
       overlayImages: [],
+      shapes: [],
       devices: newDevices,
       activeDeviceId: newDevices[0]?.id ?? "",
       layerOrder: buildDefaultLayerOrder({
         devices: newDevices,
         overlayImages: [],
+        shapes: [],
         texts,
       }),
     };
@@ -1430,6 +1547,12 @@ export const EditorProvider = ({
       imageIdMap.set(img.id, newId);
       return { ...structuredClone(img), id: newId };
     });
+    const shapeIdMap = new Map<string, string>();
+    const shapesClone = (source.shapes ?? []).map((shape) => {
+      const newId = generateId();
+      shapeIdMap.set(shape.id, newId);
+      return { ...structuredClone(shape), id: newId };
+    });
     const remapKey = (key: string) => {
       if (key.startsWith("device:")) {
         const mapped = deviceIdMap.get(key.slice(7));
@@ -1438,6 +1561,10 @@ export const EditorProvider = ({
       if (key.startsWith("image:")) {
         const mapped = imageIdMap.get(key.slice(6));
         return mapped ? `image:${mapped}` : key;
+      }
+      if (key.startsWith("shape:")) {
+        const mapped = shapeIdMap.get(key.slice(6));
+        return mapped ? `shape:${mapped}` : key;
       }
       return key;
     };
@@ -1448,10 +1575,12 @@ export const EditorProvider = ({
       activeDeviceId:
         deviceIdMap.get(source.activeDeviceId) ?? devicesClone[0]?.id ?? "",
       overlayImages: overlaysClone,
+      shapes: shapesClone,
       layerOrder: ensureLayerOrder({
         ...source,
         devices: devicesClone,
         overlayImages: overlaysClone,
+        shapes: shapesClone,
         layerOrder: (source.layerOrder ?? []).map(remapKey),
       }),
     };
@@ -1487,7 +1616,7 @@ export const EditorProvider = ({
 
   const handleElementMouseDown = (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id?: string,
   ) => {
@@ -1512,12 +1641,28 @@ export const EditorProvider = ({
       screenshots.find((screenshot) => screenshot.id === screenshotId) ??
       activeScreenshot;
 
+    const lockedEl =
+      type === "text" && id
+        ? (targetScreenshot.texts ?? []).find((t) => t.id === id)?.locked
+        : type === "image" && id
+          ? targetScreenshot.overlayImages.find((i) => i.id === id)?.locked
+          : type === "shape" && id
+            ? (targetScreenshot.shapes ?? []).find((s) => s.id === id)?.locked
+            : type === "device" && id
+              ? targetScreenshot.devices.find((d) => d.id === id)?.locked
+              : false;
+
     // Select immediately; only start a real drag after a small move threshold.
     suppressDeselectUntil.current = Date.now() + 400;
     interactionMode.current = "none";
     dragHistoryPushed.current = false;
-    setIsDragging(true);
     setSelectedElement({ type, id, screenshotId });
+    if (lockedEl) {
+      // Locked: select only, no drag/resize
+      setIsDragging(false);
+      return;
+    }
+    setIsDragging(true);
     if (activeScreenshotId !== screenshotId) {
       setActiveScreenshotIdState(screenshotId);
     }
@@ -1567,6 +1712,11 @@ export const EditorProvider = ({
         );
         if (image) {
           dragStartElementPos.current = { x: image.x, y: image.y };
+        }
+      } else if (type === "shape" && id) {
+        const shape = (targetScreenshot.shapes ?? []).find((s) => s.id === id);
+        if (shape) {
+          dragStartElementPos.current = { x: shape.x, y: shape.y };
         }
       }
     }
@@ -1618,15 +1768,91 @@ export const EditorProvider = ({
         { devices: updatedDevices },
         false,
       );
+    } else if (selectedElement.type === "shape" && selectedElement.id) {
+      const targetScreenshot = screenshots.find(
+        (screenshot) => screenshot.id === selectedElement.screenshotId,
+      );
+      if (!targetScreenshot) return;
+      const shapes = (targetScreenshot.shapes ?? []).map((s) =>
+        s.id === selectedElement.id ? { ...s, x: newX, y: newY } : s,
+      );
+      updateScreenshotById(
+        selectedElement.screenshotId,
+        { shapes },
+        false,
+      );
     }
 
     pendingUpdate.current = null;
     rafId.current = null;
   }, [screenshots, selectedElement, updateScreenshotById]);
 
+  const assignOverlayToDevice = useCallback(
+    (
+      overlayId: string,
+      overlayScreenshotId: string,
+      deviceId: string,
+      deviceScreenshotId: string,
+    ) => {
+      const overlayShot =
+        screenshots.find((s) => s.id === overlayScreenshotId) ??
+        activeScreenshot;
+      const overlay = (overlayShot.overlayImages ?? []).find(
+        (img) => img.id === overlayId,
+      );
+      if (!overlay?.src) return;
+
+      pushHistory(screenshots);
+
+      setScreenshotsState((prev) =>
+        prev.map((s) => {
+          let next = s;
+          if (s.id === deviceScreenshotId) {
+            next = {
+              ...next,
+              activeDeviceId: deviceId,
+              devices: next.devices.map((d) =>
+                d.id === deviceId
+                  ? { ...d, screenshotSrc: overlay.src }
+                  : d,
+              ),
+            };
+          }
+          if (s.id === overlayScreenshotId) {
+            const overlayImages = (next.overlayImages ?? []).filter(
+              (img) => img.id !== overlayId,
+            );
+            const withImages = { ...next, overlayImages };
+            next = {
+              ...withImages,
+              layerOrder: ensureLayerOrder(withImages),
+            };
+          }
+          return next;
+        }),
+      );
+
+      setSelectedElement({
+        type: "device",
+        id: deviceId,
+        screenshotId: deviceScreenshotId,
+      });
+      if (activeScreenshotId !== deviceScreenshotId) {
+        setActiveScreenshotIdState(deviceScreenshotId);
+      }
+    },
+    [
+      screenshots,
+      activeScreenshot,
+      activeScreenshotId,
+      pushHistory,
+    ],
+  );
+
   const handleElementMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!isDragging || !selectedElement) return;
+      lastPointer.current = { x: e.clientX, y: e.clientY };
 
       const { width, height } = dragContainerSize.current;
       if (width === 0 || height === 0) return;
@@ -1657,16 +1883,26 @@ export const EditorProvider = ({
         const localDeltaY =
           deltaX * Math.sin(rad) + deltaY * Math.cos(rad);
         // Canva-like: drag handle inward (toward center) = shrink
-        const isWest = meta.handle === "w" || meta.handle === "nw" || meta.handle === "sw";
-        const isNorth = meta.handle === "nw" || meta.handle === "ne";
+        const isWest =
+          meta.handle === "w" || meta.handle === "nw" || meta.handle === "sw";
+        const isNorth =
+          meta.handle === "n" ||
+          meta.handle === "nw" ||
+          meta.handle === "ne";
         const isCorner =
           meta.handle === "nw" ||
           meta.handle === "ne" ||
           meta.handle === "sw" ||
           meta.handle === "se";
+        const isSideEW = meta.handle === "e" || meta.handle === "w";
+        const isSideNS = meta.handle === "n" || meta.handle === "s";
         const signedX = (isWest ? -1 : 1) * localDeltaX;
         const signedY = (isNorth ? -1 : 1) * localDeltaY;
-        const growDelta = isCorner ? (signedX + signedY) / 2 : signedX;
+        const growDelta = isCorner
+          ? (signedX + signedY) / 2
+          : isSideNS
+            ? signedY
+            : signedX;
 
         const target = screenshots.find(
           (s) => s.id === selectedElement.screenshotId,
@@ -1691,14 +1927,41 @@ export const EditorProvider = ({
             (img) => img.id === selectedElement.id,
           );
           if (!image) return;
-          const aspect = image.width / image.height || 1;
-          const nextWidth = Math.min(
-            90,
-            Math.max(5, meta.startWidth + growDelta),
-          );
+
+          let nextWidth = meta.startWidth;
+          let nextHeight = meta.startHeight;
+          let nextX = meta.startX;
+          let nextY = meta.startY;
+
+          if (isCorner) {
+            // Uniform scale — keep frame aspect from drag start
+            nextWidth = Math.min(90, Math.max(5, meta.startWidth + growDelta));
+            const ratio =
+              meta.startWidth > 0 ? meta.startHeight / meta.startWidth : 1;
+            nextHeight = Math.min(90, Math.max(5, nextWidth * ratio));
+          } else if (isSideEW) {
+            // Crop horizontally — opposite edge stays put
+            nextWidth = Math.min(90, Math.max(5, meta.startWidth + signedX));
+            const dw = nextWidth - meta.startWidth;
+            nextX =
+              meta.handle === "e" ? meta.startX + dw / 2 : meta.startX - dw / 2;
+          } else if (isSideNS) {
+            // Crop vertically — opposite edge stays put
+            nextHeight = Math.min(90, Math.max(5, meta.startHeight + signedY));
+            const dh = nextHeight - meta.startHeight;
+            nextY =
+              meta.handle === "s" ? meta.startY + dh / 2 : meta.startY - dh / 2;
+          }
+
           const updatedImages = target.overlayImages.map((img) =>
             img.id === selectedElement.id
-              ? { ...img, width: nextWidth, height: nextWidth / aspect }
+              ? {
+                  ...img,
+                  width: nextWidth,
+                  height: nextHeight,
+                  x: nextX,
+                  y: nextY,
+                }
               : img,
           );
           updateScreenshotById(
@@ -1709,7 +1972,7 @@ export const EditorProvider = ({
         } else if (selectedElement.type === "device" && selectedElement.id) {
           const nextScale = Math.min(
             120,
-            Math.max(30, meta.startScale + growDelta),
+            Math.max(12, meta.startScale + growDelta),
           );
           const updatedDevices = target.devices.map((device) =>
             device.id === selectedElement.id
@@ -1719,6 +1982,51 @@ export const EditorProvider = ({
           updateScreenshotById(
             selectedElement.screenshotId,
             { devices: updatedDevices },
+            false,
+          );
+        } else if (selectedElement.type === "shape" && selectedElement.id) {
+          const shape = (target.shapes ?? []).find(
+            (s) => s.id === selectedElement.id,
+          );
+          if (!shape) return;
+
+          let nextWidth = meta.startWidth;
+          let nextHeight = meta.startHeight;
+          let nextX = meta.startX;
+          let nextY = meta.startY;
+          const locked = isLockedAspectShape(shape.form);
+
+          if (isCorner || locked) {
+            nextWidth = Math.min(90, Math.max(5, meta.startWidth + growDelta));
+            const ratio =
+              meta.startWidth > 0 ? meta.startHeight / meta.startWidth : 1;
+            nextHeight = Math.min(90, Math.max(5, nextWidth * ratio));
+          } else if (isSideEW) {
+            nextWidth = Math.min(90, Math.max(5, meta.startWidth + signedX));
+            const dw = nextWidth - meta.startWidth;
+            nextX =
+              meta.handle === "e" ? meta.startX + dw / 2 : meta.startX - dw / 2;
+          } else if (isSideNS) {
+            nextHeight = Math.min(90, Math.max(5, meta.startHeight + signedY));
+            const dh = nextHeight - meta.startHeight;
+            nextY =
+              meta.handle === "s" ? meta.startY + dh / 2 : meta.startY - dh / 2;
+          }
+
+          const shapes = (target.shapes ?? []).map((s) =>
+            s.id === selectedElement.id
+              ? {
+                  ...s,
+                  width: nextWidth,
+                  height: nextHeight,
+                  x: nextX,
+                  y: nextY,
+                }
+              : s,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { shapes },
             false,
           );
         }
@@ -1755,6 +2063,17 @@ export const EditorProvider = ({
             { devices: updatedDevices },
             false,
           );
+        } else if (selectedElement.type === "shape") {
+          const shapes = (target.shapes ?? []).map((s) =>
+            s.id === selectedElement.id
+              ? { ...s, rotation: nextRotation }
+              : s,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { shapes },
+            false,
+          );
         }
         return;
       }
@@ -1762,10 +2081,31 @@ export const EditorProvider = ({
       const deltaX = ((e.clientX - dragStartPos.current.x) / width) * 100;
       const deltaY = ((e.clientY - dragStartPos.current.y) / height) * 100;
 
-      const newX = dragStartElementPos.current.x + deltaX;
-      const newY = dragStartElementPos.current.y + deltaY;
+      let newX = dragStartElementPos.current.x + deltaX;
+      let newY = dragStartElementPos.current.y + deltaY;
 
       if (interactionMode.current !== "drag") return;
+
+      const bypassSnap = e.altKey || !snapEnabled;
+      const targetShot =
+        screenshots.find((s) => s.id === selectedElement.screenshotId) ??
+        activeScreenshot;
+      if (!bypassSnap) {
+        const { self, peers } = collectSnapPeers(targetShot, selectedElement);
+        const snapped = snapDragPosition(
+          newX,
+          newY,
+          self,
+          peers,
+          1.25,
+          true,
+        );
+        newX = snapped.x;
+        newY = snapped.y;
+        setSnapGuides(snapped.guides);
+      } else {
+        setSnapGuides([]);
+      }
 
       pendingUpdate.current = { x: newX, y: newY };
 
@@ -1780,13 +2120,56 @@ export const EditorProvider = ({
       screenshots,
       updateScreenshotById,
       pushHistory,
+      snapEnabled,
+      activeScreenshot,
     ],
   );
 
   const handleElementMouseUp = useCallback(() => {
+    setSnapGuides([]);
     const modeAtUp = interactionMode.current;
     const pendingTextEdit = textClickEditRef.current;
+    const draggedElement = selectedElement;
     textClickEditRef.current = null;
+
+    // Overlay dropped onto a device → fill that screen (like file DnD)
+    if (
+      modeAtUp === "drag" &&
+      draggedElement?.type === "image" &&
+      draggedElement.id
+    ) {
+      const { x, y } = lastPointer.current;
+      const stack =
+        typeof document.elementsFromPoint === "function"
+          ? document.elementsFromPoint(x, y)
+          : [];
+      for (const node of stack) {
+        if (!(node instanceof Element)) continue;
+        if (node.closest('[data-draggable-element="image"]')) continue;
+        const host = node.closest("[data-device-instance]");
+        if (!(host instanceof HTMLElement)) continue;
+        const deviceId = host.dataset.deviceInstance;
+        const deviceScreenshotId = host.dataset.ownerScreenshotId;
+        if (deviceId && deviceScreenshotId) {
+          if (rafId.current !== null) {
+            cancelAnimationFrame(rafId.current);
+            rafId.current = null;
+          }
+          pendingUpdate.current = null;
+          setIsDragging(false);
+          interactionMode.current = "none";
+          resizeMeta.current = null;
+          dragHistoryPushed.current = false;
+          assignOverlayToDevice(
+            draggedElement.id,
+            draggedElement.screenshotId,
+            deviceId,
+            deviceScreenshotId,
+          );
+          return;
+        }
+      }
+    }
 
     setIsDragging(false);
     interactionMode.current = "none";
@@ -1821,14 +2204,20 @@ export const EditorProvider = ({
         textId: pendingTextEdit.textId,
       });
     }
-  }, [applyDragUpdate, activeScreenshotId, pushHistory]);
+  }, [
+    applyDragUpdate,
+    activeScreenshotId,
+    pushHistory,
+    selectedElement,
+    assignOverlayToDevice,
+  ]);
 
   const handleResizeStart = (
     e: React.MouseEvent,
-    type: "text" | "image" | "device",
+    type: "text" | "image" | "device" | "shape",
     screenshotId: string,
     id: string | undefined,
-    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
+    handle: ResizeHandle,
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1859,6 +2248,7 @@ export const EditorProvider = ({
         startHeight: 0,
         startScale: 0,
         startX: text.x,
+        startY: text.y,
         startRotation: 0,
       };
     } else if (type === "image" && id) {
@@ -1870,6 +2260,7 @@ export const EditorProvider = ({
         startHeight: image.height,
         startScale: 0,
         startX: image.x,
+        startY: image.y,
         startRotation: image.rotation,
       };
     } else if (type === "device" && id) {
@@ -1881,14 +2272,27 @@ export const EditorProvider = ({
         startHeight: 0,
         startScale: device.scale,
         startX: device.x,
+        startY: device.y,
         startRotation: device.rotation,
+      };
+    } else if (type === "shape" && id) {
+      const shape = (target.shapes ?? []).find((s) => s.id === id);
+      if (!shape) return;
+      resizeMeta.current = {
+        handle,
+        startWidth: shape.width,
+        startHeight: shape.height,
+        startScale: 0,
+        startX: shape.x,
+        startY: shape.y,
+        startRotation: shape.rotation,
       };
     }
   };
 
   const handleRotateStart = (
     e: React.MouseEvent,
-    type: "image" | "device",
+    type: "image" | "device" | "shape",
     screenshotId: string,
     id: string,
   ) => {
@@ -1913,7 +2317,20 @@ export const EditorProvider = ({
         startHeight: image.height,
         startScale: 0,
         startX: image.x,
+        startY: image.y,
         startRotation: image.rotation ?? 0,
+      };
+    } else if (type === "shape") {
+      const shape = (target.shapes ?? []).find((s) => s.id === id);
+      if (!shape) return;
+      resizeMeta.current = {
+        handle: "se",
+        startWidth: shape.width,
+        startHeight: shape.height,
+        startScale: 0,
+        startX: shape.x,
+        startY: shape.y,
+        startRotation: shape.rotation ?? 0,
       };
     } else {
       const device = target.devices.find((d) => d.id === id);
@@ -1924,6 +2341,7 @@ export const EditorProvider = ({
         startHeight: 0,
         startScale: device.scale,
         startX: device.x,
+        startY: device.y,
         startRotation: device.rotation,
       };
     }
@@ -1974,20 +2392,220 @@ export const EditorProvider = ({
   ) => {
     const shot =
       screenshots.find((s) => s.id === screenshotId) ?? activeScreenshot;
-    const texts = (shot.texts ?? []).map((t) =>
-      t.id === textId ? { ...t, ...updates } : t,
-    );
+    const texts = (shot.texts ?? []).map((t) => {
+      if (t.id !== textId) return t;
+      const merged = { ...t, ...updates };
+      if (updates.content !== undefined) {
+        return withTextTranslation(merged, activeLocale, updates.content);
+      }
+      return merged;
+    });
     updateScreenshotById(screenshotId, {
       ...withSyncedTexts(texts),
       layerOrder: ensureLayerOrder({ ...shot, texts }),
     });
   };
 
+  const setActiveLocale = (code: string) => {
+    if (code === activeLocale) return;
+    const base = locales[0] ?? DEFAULT_LOCALE;
+    const nextScreens = applyLocaleToScreenshots(
+      screenshots,
+      activeLocale,
+      code,
+      base,
+    );
+    setScreenshotsState(nextScreens);
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, activeLocale: code, screenshots: nextScreens }
+          : p,
+      ),
+    );
+  };
+
+  const addLocale = (code: string) => {
+    if (locales.includes(code)) {
+      setActiveLocale(code);
+      return;
+    }
+    const base = locales[0] ?? DEFAULT_LOCALE;
+    const seeded = screenshots.map((s) => ({
+      ...s,
+      texts: (s.texts ?? []).map((t) => {
+        const baseContent = t.translations?.[base] ?? t.content;
+        return {
+          ...t,
+          translations: {
+            ...(t.translations ?? {}),
+            [base]: baseContent,
+            [code]: baseContent,
+          },
+        };
+      }),
+    }));
+    const nextLocales = [...locales, code];
+    const switched = applyLocaleToScreenshots(
+      seeded,
+      activeLocale,
+      code,
+      base,
+    );
+    setScreenshotsState(switched);
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? {
+              ...p,
+              locales: nextLocales,
+              activeLocale: code,
+              screenshots: switched,
+            }
+          : p,
+      ),
+    );
+  };
+
+  const removeLocale = (code: string) => {
+    if (locales.length <= 1 || !locales.includes(code)) return;
+    const nextLocales = locales.filter((l) => l !== code);
+    const nextActive =
+      code === activeLocale ? nextLocales[0] : activeLocale;
+    let nextScreens = screenshots;
+    if (code === activeLocale) {
+      nextScreens = applyLocaleToScreenshots(
+        screenshots,
+        activeLocale,
+        nextActive,
+        nextLocales[0],
+      );
+    }
+    setScreenshotsState(nextScreens);
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? {
+              ...p,
+              locales: nextLocales,
+              activeLocale: nextActive,
+              screenshots: nextScreens,
+            }
+          : p,
+      ),
+    );
+  };
+
+  const replacePrimaryLocale = (code: string) => {
+    if (locales.includes(code) && locales[0] === code) {
+      setActiveLocale(code);
+      return;
+    }
+    const prev = activeLocale;
+    const prevBase = locales[0] ?? DEFAULT_LOCALE;
+    // Keep current copy under the new code; drop old key as primary
+    const remapped = screenshots.map((s) => ({
+      ...s,
+      texts: (s.texts ?? []).map((t) => {
+        const current = t.content;
+        const { [prev]: _drop, [prevBase]: _dropBase, ...rest } =
+          t.translations ?? {};
+        return {
+          ...t,
+          content: current,
+          translations: {
+            ...rest,
+            [code]: current,
+          },
+        };
+      }),
+    }));
+    const others = locales.filter((l) => l !== prev && l !== code);
+    const nextLocales = [code, ...others];
+    setScreenshotsState(remapped);
+    setProjects((prevP) =>
+      prevP.map((p) =>
+        p.id === activeProjectId
+          ? {
+              ...p,
+              locales: nextLocales,
+              activeLocale: code,
+              screenshots: remapped,
+            }
+          : p,
+      ),
+    );
+  };
+
+  const patchElementFlags = (
+    el: SelectedElement,
+    patch: { hidden?: boolean; locked?: boolean },
+  ) => {
+    const shot =
+      screenshots.find((s) => s.id === el.screenshotId) ?? activeScreenshot;
+    if (el.type === "text" && el.id) {
+      const texts = (shot.texts ?? []).map((t) =>
+        t.id === el.id ? { ...t, ...patch } : t,
+      );
+      updateScreenshotById(el.screenshotId, withSyncedTexts(texts));
+    } else if (el.type === "image" && el.id) {
+      updateScreenshotById(el.screenshotId, {
+        overlayImages: shot.overlayImages.map((img) =>
+          img.id === el.id ? { ...img, ...patch } : img,
+        ),
+      });
+    } else if (el.type === "shape" && el.id) {
+      updateScreenshotById(el.screenshotId, {
+        shapes: (shot.shapes ?? []).map((s) =>
+          s.id === el.id ? { ...s, ...patch } : s,
+        ),
+      });
+    } else if (el.type === "device" && el.id) {
+      updateScreenshotById(el.screenshotId, {
+        devices: shot.devices.map((d) =>
+          d.id === el.id ? { ...d, ...patch } : d,
+        ),
+      });
+    }
+  };
+
+  const toggleElementHidden = (el: SelectedElement) => {
+    const shot =
+      screenshots.find((s) => s.id === el.screenshotId) ?? activeScreenshot;
+    let current = false;
+    if (el.type === "text" && el.id)
+      current = Boolean((shot.texts ?? []).find((t) => t.id === el.id)?.hidden);
+    if (el.type === "image" && el.id)
+      current = Boolean(shot.overlayImages.find((i) => i.id === el.id)?.hidden);
+    if (el.type === "shape" && el.id)
+      current = Boolean((shot.shapes ?? []).find((s) => s.id === el.id)?.hidden);
+    if (el.type === "device" && el.id)
+      current = Boolean(shot.devices.find((d) => d.id === el.id)?.hidden);
+    patchElementFlags(el, { hidden: !current });
+  };
+
+  const toggleElementLocked = (el: SelectedElement) => {
+    const shot =
+      screenshots.find((s) => s.id === el.screenshotId) ?? activeScreenshot;
+    let current = false;
+    if (el.type === "text" && el.id)
+      current = Boolean((shot.texts ?? []).find((t) => t.id === el.id)?.locked);
+    if (el.type === "image" && el.id)
+      current = Boolean(shot.overlayImages.find((i) => i.id === el.id)?.locked);
+    if (el.type === "shape" && el.id)
+      current = Boolean((shot.shapes ?? []).find((s) => s.id === el.id)?.locked);
+    if (el.type === "device" && el.id)
+      current = Boolean(shot.devices.find((d) => d.id === el.id)?.locked);
+    patchElementFlags(el, { locked: !current });
+  };
+
   const addText = () => {
     const offset = (activeScreenshot.texts?.length ?? 0) * 6;
     const text = createTextOverlay({
-      content: "New text",
-      y: Math.min(80, 12 + offset),
+      content: "Text",
+      width: 40,
+      fontSize: 48,
+      y: Math.min(80, 20 + offset),
       fontFamily: activeScreenshot.fontFamily ?? "Inter",
       color: activeScreenshot.textColor ?? "#ffffff",
     });
@@ -2003,6 +2621,8 @@ export const EditorProvider = ({
     });
     setInlineEditing({ screenshotId: activeScreenshotId, textId: text.id });
   };
+  const addTextRef = useRef(addText);
+  addTextRef.current = addText;
 
   const removeText = (textId: string) => {
     const texts = (activeScreenshot.texts ?? []).filter((t) => t.id !== textId);
@@ -2059,6 +2679,7 @@ export const EditorProvider = ({
     const img = new Image();
     img.onload = () => {
       const aspectRatio = img.width / img.height || 1;
+      const canvasAspect = exportSize.width / Math.max(exportSize.height, 1);
       const newImage: ImageOverlay = {
         id: generateId(),
         src,
@@ -2066,9 +2687,10 @@ export const EditorProvider = ({
         x: 50,
         y: 50,
         width: 30,
-        height: 30 / aspectRatio,
+        height: overlayHeightForImageAspect(30, aspectRatio, canvasAspect),
         layer: "front",
         rotation: 0,
+        opacity: 100,
         shadow: {
           enabled: false,
           color: "#000000",
@@ -2104,6 +2726,106 @@ export const EditorProvider = ({
       });
   };
 
+  const addOverlayImageToScreenshot = (
+    file: File,
+    screenshotId: string = activeScreenshotId,
+  ) => {
+    if (!file.type.startsWith("image/")) return;
+    void ingestImageFile(file)
+      .then((src) => {
+        if (screenshotId !== activeScreenshotId) {
+          setActiveScreenshotIdState(screenshotId);
+        }
+        // addOverlayImageSource uses activeScreenshot — switch first then add
+        const img = new Image();
+        img.onload = () => {
+          const aspectRatio = img.width / img.height || 1;
+          const canvasAspect = exportSize.width / Math.max(exportSize.height, 1);
+          const newImage: ImageOverlay = {
+            id: generateId(),
+            src,
+            x: 50,
+            y: 50,
+            width: 30,
+            height: overlayHeightForImageAspect(30, aspectRatio, canvasAspect),
+            layer: "front",
+            rotation: 0,
+            opacity: 100,
+            shadow: {
+              enabled: false,
+              color: "#000000",
+              blur: 20,
+              offsetX: 0,
+              offsetY: 10,
+            },
+          };
+          setScreenshotsState((prev) => {
+            if (!skipHistory.current) {
+              historyPast.current.push({
+                screenshots: structuredClone(prev),
+              });
+              if (historyPast.current.length > 50) historyPast.current.shift();
+              historyFuture.current = [];
+              setHistoryTick((t) => t + 1);
+            }
+            return prev.map((s) => {
+              if (s.id !== screenshotId) return s;
+              const nextOverlays = [...(s.overlayImages ?? []), newImage];
+              const next = {
+                ...s,
+                overlayImages: nextOverlays,
+              };
+              return {
+                ...next,
+                layerOrder: [
+                  ...ensureLayerOrder(next).filter(
+                    (k) => k !== `image:${newImage.id}`,
+                  ),
+                  `image:${newImage.id}`,
+                ],
+              };
+            });
+          });
+          setSelectedElement({
+            type: "image",
+            id: newImage.id,
+            screenshotId,
+          });
+        };
+        img.src = src;
+      })
+      .catch((err) => {
+        console.warn("Canvas drop overlay ingest failed:", err);
+      });
+  };
+
+  const promoteOverlayToBackground = (
+    imageId: string,
+    screenshotId: string = activeScreenshotId,
+  ) => {
+    const shot =
+      screenshots.find((s) => s.id === screenshotId) ?? activeScreenshot;
+    const image = (shot.overlayImages ?? []).find((img) => img.id === imageId);
+    if (!image) return;
+
+    updateScreenshotById(screenshotId, {
+      backgroundMode: "image",
+      backgroundImage: image.src,
+      overlayImages: (shot.overlayImages ?? []).filter(
+        (img) => img.id !== imageId,
+      ),
+      layerOrder: ensureLayerOrder(shot).filter(
+        (k) => k !== `image:${imageId}`,
+      ),
+    });
+    if (
+      selectedElement?.type === "image" &&
+      selectedElement.id === imageId
+    ) {
+      setSelectedElement(null);
+    }
+  };
+
   const addIcon = (src: string, name: string) => {
     addOverlayImageSource(src, name);
   };
@@ -2133,17 +2855,25 @@ export const EditorProvider = ({
     );
     if (!image) return;
 
-    // Use current dimensions to maintain aspect ratio without reloading image
-    const aspectRatio = image.width / image.height;
+    // Scale frame uniformly from current width/height % ratio
+    const ratio = image.width > 0 ? image.height / image.width : 1;
 
     const updatedImages = activeScreenshot.overlayImages.map((item) =>
       item.id === imageId
         ? {
             ...item,
             width: widthPercent,
-            height: widthPercent / aspectRatio,
+            height: Math.min(90, Math.max(5, widthPercent * ratio)),
           }
         : item,
+    );
+    updateActiveScreenshot({ overlayImages: updatedImages });
+  };
+
+  const updateOverlayImageOpacity = (imageId: string, opacity: number) => {
+    const clamped = Math.min(100, Math.max(0, opacity));
+    const updatedImages = activeScreenshot.overlayImages.map((item) =>
+      item.id === imageId ? { ...item, opacity: clamped } : item,
     );
     updateActiveScreenshot({ overlayImages: updatedImages });
   };
@@ -2176,6 +2906,86 @@ export const EditorProvider = ({
     );
     updateActiveScreenshot({ overlayImages: updatedImages });
   };
+
+  const addShape = (form: ShapeForm = "rounded") => {
+    const canvasAspect = exportSize.width / Math.max(exportSize.height, 1);
+    const shape: ShapeOverlay = {
+      id: generateId(),
+      ...createDefaultShape(form, canvasAspect),
+    };
+    const shapes = [...(activeScreenshot.shapes ?? []), shape];
+    updateActiveScreenshot({
+      shapes,
+      layerOrder: [
+        ...ensureLayerOrder({ ...activeScreenshot, shapes }).filter(
+          (k) => k !== `shape:${shape.id}`,
+        ),
+        `shape:${shape.id}`,
+      ],
+    });
+    setSelectedElement({
+      type: "shape",
+      id: shape.id,
+      screenshotId: activeScreenshot.id,
+    });
+  };
+
+  const removeShape = (shapeId: string) => {
+    const shapes = (activeScreenshot.shapes ?? []).filter(
+      (s) => s.id !== shapeId,
+    );
+    updateActiveScreenshot({
+      shapes,
+      layerOrder: ensureLayerOrder({
+        ...activeScreenshot,
+        shapes,
+      }),
+    });
+    if (
+      selectedElement?.type === "shape" &&
+      selectedElement.screenshotId === activeScreenshot.id &&
+      selectedElement.id === shapeId
+    ) {
+      setSelectedElement(null);
+    }
+  };
+
+  const updateShape = (shapeId: string, updates: Partial<ShapeOverlay>) => {
+    const canvasAspect = exportSize.width / Math.max(exportSize.height, 1);
+    const shapes = (activeScreenshot.shapes ?? []).map((s) => {
+      if (s.id !== shapeId) return s;
+      if (updates.form && updates.form !== s.form) {
+        return applyShapeForm(
+          { ...s, ...updates, form: updates.form },
+          updates.form,
+          canvasAspect,
+        );
+      }
+      return { ...s, ...updates };
+    });
+    updateActiveScreenshot({ shapes });
+  };
+
+  const setShapeFillImage = (shapeId: string, file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    void ingestImageFile(file)
+      .then((src) => {
+        updateShape(shapeId, {
+          fillMode: "image",
+          fillImage: src,
+          imageOffsetX: 0,
+          imageOffsetY: 0,
+        });
+      })
+      .catch((err) => {
+        console.warn("Shape fill image ingest failed:", err);
+      });
+  };
+
+  const bringShapeForward = (shapeId: string) =>
+    moveElementLayer("shape", shapeId, "forward");
+  const sendShapeBackward = (shapeId: string) =>
+    moveElementLayer("shape", shapeId, "backward");
 
   const moveElementLayer = (
     type: SelectedElement["type"],
@@ -2320,6 +3130,19 @@ export const EditorProvider = ({
 
       if (isTypingTarget(target)) return;
 
+      // Canva-style: T adds a text layer
+      if (
+        (e.key === "t" || e.key === "T") &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !inlineEditing
+      ) {
+        e.preventDefault();
+        addTextRef.current();
+        return;
+      }
+
       if (
         (e.key === "Enter" || e.key === "F2") &&
         selectedElement?.type === "text" &&
@@ -2393,6 +3216,21 @@ export const EditorProvider = ({
             { devices: updatedDevices },
             true,
           );
+        } else if (selectedElement.type === "shape" && selectedElement.id) {
+          const shapes = (shot.shapes ?? []).map((s) =>
+            s.id === selectedElement.id
+              ? {
+                  ...s,
+                  x: Math.min(100, Math.max(0, s.x + dx)),
+                  y: Math.min(100, Math.max(0, s.y + dy)),
+                }
+              : s,
+          );
+          updateScreenshotById(
+            selectedElement.screenshotId,
+            { shapes },
+            true,
+          );
         }
         return;
       }
@@ -2403,6 +3241,10 @@ export const EditorProvider = ({
 
       if (selectedElement.type === "image" && selectedElement.id) {
         removeOverlayImage(selectedElement.id);
+        return;
+      }
+      if (selectedElement.type === "shape" && selectedElement.id) {
+        removeShape(selectedElement.id);
         return;
       }
       if (selectedElement.type === "device" && selectedElement.id) {
@@ -2432,6 +3274,7 @@ export const EditorProvider = ({
     screenshots,
     updateScreenshotById,
     removeOverlayImage,
+    removeShape,
     removeDevice,
   ]);
 
@@ -2607,10 +3450,24 @@ export const EditorProvider = ({
       const materialized = await materializeProjectImages(
         snapshotActiveProject(),
       );
+      const base = locales[0] ?? DEFAULT_LOCALE;
+      // Persist current editor content into active locale before export
+      const synced = applyLocaleToScreenshots(
+        materialized.screenshots,
+        activeLocale,
+        activeLocale,
+        base,
+      );
+      const localeList =
+        locales.length > 1 ? locales : [activeLocale || DEFAULT_LOCALE];
       await exportScreenshots({
-        screenshots: materialized.screenshots,
+        screenshots: synced,
         exportSizes: unique,
         designWidth: exportSize.width,
+        locales: localeList,
+        baseLocale: base,
+        resolveLocaleScreenshots: (shots, locale) =>
+          screenshotsForLocaleExport(shots, locale, base),
       });
       setIsExportSuccessOpen(true);
     } catch (err) {
@@ -2745,12 +3602,21 @@ export const EditorProvider = ({
         requestContentFocus,
         updateTextAlign,
         addOverlayImage,
+        addOverlayImageToScreenshot,
+        promoteOverlayToBackground,
         addIcon,
         removeOverlayImage,
         updateOverlayImageSize,
+        updateOverlayImageOpacity,
         updateOverlayImageLayer,
         updateOverlayImageRotation,
         updateOverlayImageShadow,
+        addShape,
+        removeShape,
+        updateShape,
+        setShapeFillImage,
+        bringShapeForward,
+        sendShapeBackward,
         addDevice,
         selectDevice,
         removeDevice,
@@ -2763,6 +3629,17 @@ export const EditorProvider = ({
         bringImageToFront,
         sendImageToBack,
         moveElementLayer,
+        toggleElementHidden,
+        toggleElementLocked,
+        snapEnabled,
+        setSnapEnabled,
+        snapGuides,
+        locales,
+        activeLocale,
+        setActiveLocale,
+        addLocale,
+        removeLocale,
+        replacePrimaryLocale,
         handleFileUpload,
         ingestImageFile,
         applyScreenImageFile,

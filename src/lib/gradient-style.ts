@@ -14,7 +14,8 @@ export function resolveGradientColors(screenshot: Screenshot): {
   to: string;
   angle: number;
 } {
-  if (screenshot.customGradient) {
+  // Preset id wins when set; otherwise use saved custom (kept across solid/image).
+  if (!screenshot.gradientPresetId && screenshot.customGradient) {
     return {
       from: screenshot.customGradient.from,
       via: screenshot.customGradient.via,

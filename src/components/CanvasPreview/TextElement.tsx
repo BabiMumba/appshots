@@ -14,7 +14,7 @@ import {
   normalizeRichTextHighlights,
 } from "../../lib/rich-text-highlight";
 import { textAlignClass } from "../../lib/text-align";
-import { SelectionHandles } from "./SelectionHandles";
+import { SelectionHandles, type ResizeHandle } from "./SelectionHandles";
 
 interface TextElementProps {
   content: string;
@@ -36,10 +36,7 @@ interface TextElementProps {
   onDoubleClick?: (e: ReactMouseEvent) => void;
   onContentChange?: (html: string) => void;
   onEditEnd?: () => void;
-  onResizeStart?: (
-    e: ReactMouseEvent,
-    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
-  ) => void;
+  onResizeStart?: (e: ReactMouseEvent, handle: ResizeHandle) => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
 }
 
@@ -197,8 +194,11 @@ export const TextElement = ({
         left: `${x}%`,
         top: `${y}%`,
         transform: "translateX(-50%)",
-        width: `${width}%`,
+        // Hug content (Canva-like). `width` is only the wrap max — short
+        // copy must not steal clicks across the canvas.
+        width: "max-content",
         maxWidth: `${width}%`,
+        minWidth: isEditing ? "1.5ch" : undefined,
         fontSize: `${fontSize}px`,
         fontWeight,
         lineHeight: 1.1,
@@ -207,7 +207,6 @@ export const TextElement = ({
         textTransform: uppercase ? "uppercase" : "none",
         wordWrap: "break-word",
         overflowWrap: "break-word",
-        // Match export: ink must stay in the text box (no silent overflow)
         overflow: "hidden",
         boxSizing: "border-box",
         zIndex: isEditing ? Math.max(zIndex, 250) : zIndex,
@@ -243,14 +242,14 @@ export const TextElement = ({
         />
       ) : (
         <div
-          className="overflow-hidden"
+          className="overflow-hidden w-max max-w-full"
           dangerouslySetInnerHTML={{ __html: normalizedContent }}
         />
       )}
       {isSelected && isInteractive && !isEditing && (
         <SelectionHandles
           showCorners={false}
-          showSideHandles
+          showSideHandles={false}
           showRotation={false}
           onResizeStart={onResizeStart}
         />

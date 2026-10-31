@@ -22,7 +22,7 @@ export const AppearanceSection = ({
   canApplyToAll = false,
   onApplyToAll,
 }: AppearanceSectionProps) => (
-  <SidebarSection title="Background">
+  <SidebarSection title="Background" sectionId="appearance">
     <BackgroundPicker
       screenshot={screenshot}
       gradientPresets={gradientPresets}

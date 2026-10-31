@@ -1,8 +1,6 @@
 /**
- * ScreenContent Component
- *
- * Renders the content displayed on the device screen with cover-fit + zoom/pan.
- * Empty state offers upload CTA + drag-and-drop when interactive.
+ * ScreenContent — device screen image with cover-fit + zoom/pan.
+ * Always accepts drag-drop / click upload when interactive (replace too).
  */
 
 import { useRef, useState } from "react";
@@ -13,7 +11,7 @@ interface ScreenContentProps {
   imageZoom?: number;
   imageOffsetX?: number;
   imageOffsetY?: number;
-  /** When set, empty screen shows upload CTA and accepts drops */
+  /** When set, screen accepts drop + click upload (empty or replace) */
   onScreenImageFile?: (file: File) => void;
 }
 
@@ -27,14 +25,51 @@ export const ScreenContent = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  const takeImageFile = (list: FileList | null | undefined) => {
+    const file = list?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    onScreenImageFile?.(file);
+  };
+
+  const dragHandlers = onScreenImageFile
+    ? {
+        onDragEnter: (e: React.DragEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(true);
+        },
+        onDragOver: (e: React.DragEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(true);
+        },
+        onDragLeave: (e: React.DragEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+          takeImageFile(e.dataTransfer.files);
+        },
+      }
+    : {};
+
   if (screenshotSrc) {
     const zoom = Math.max(0.5, Math.min(3, imageZoom || 1));
     return (
-      <div className="w-full h-full overflow-hidden relative bg-black">
+      <div
+        className={`w-full h-full overflow-hidden relative bg-black ${
+          isDragOver ? "ring-2 ring-inset ring-sky-400/70" : ""
+        }`}
+        {...dragHandlers}
+      >
         <img
           src={screenshotSrc}
           alt="Screenshot"
-          className="absolute left-1/2 top-1/2 max-w-none"
+          className="absolute left-1/2 top-1/2 max-w-none pointer-events-none"
           style={{
             width: "100%",
             height: "100%",
@@ -43,6 +78,13 @@ export const ScreenContent = ({
             transformOrigin: "center center",
           }}
         />
+        {isDragOver && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/45 pointer-events-none">
+            <span className="text-[10px] font-medium text-white">
+              Drop to replace
+            </span>
+          </div>
+        )}
       </div>
     );
   }
@@ -55,38 +97,12 @@ export const ScreenContent = ({
     );
   }
 
-  const takeImageFile = (list: FileList | null | undefined) => {
-    const file = list?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    onScreenImageFile(file);
-  };
-
   return (
     <div
       className={`w-full h-full flex flex-col items-center justify-center gap-2 bg-[#1c1c1e] px-3 text-center transition-colors ${
         isDragOver ? "bg-white/10 ring-2 ring-inset ring-white/40" : ""
       }`}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(true);
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(true);
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(false);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(false);
-        takeImageFile(e.dataTransfer.files);
-      }}
+      {...dragHandlers}
     >
       <input
         ref={inputRef}

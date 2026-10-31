@@ -67,6 +67,7 @@ describe("getRenderableDevicesForScreenshot", () => {
       subheadlineUppercase: false,
       texts: [],
       overlayImages: [],
+      shapes: [],
       activeDeviceId: screenshot.devices[0].id,
       layerOrder: [`device:${screenshot.devices[0].id}`],
       ...screenshot,

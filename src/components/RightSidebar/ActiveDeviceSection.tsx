@@ -11,7 +11,6 @@ interface ActiveDeviceSectionProps {
   selectedDeviceId: string;
   selectedColorId: string;
   selectedDevice: DeviceSpec;
-  exportAspectHint?: string | null;
   onDeviceSelect: (deviceId: string, defaultColorId: string) => void;
   onColorSelect: (colorId: string) => void;
 }
@@ -21,7 +20,6 @@ export const ActiveDeviceSection = ({
   selectedDeviceId,
   selectedColorId,
   selectedDevice,
-  exportAspectHint,
   onDeviceSelect,
   onColorSelect,
 }: ActiveDeviceSectionProps) => (
@@ -64,10 +62,5 @@ export const ActiveDeviceSection = ({
       </div>
     </div>
 
-    {exportAspectHint && (
-      <p className="mt-3 text-[10px] text-amber-200/80 leading-relaxed">
-        {exportAspectHint}
-      </p>
-    )}
   </SidebarSection>
 );

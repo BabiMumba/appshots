@@ -11,7 +11,8 @@ export const createTextOverlay = (
   content: overrides.content ?? "Double-click to edit",
   x: overrides.x ?? 50,
   y: overrides.y ?? 12,
-  width: overrides.width ?? 80,
+  /** Max wrap width % — box hugs content in the editor (see TextElement). */
+  width: overrides.width ?? 50,
   fontSize: overrides.fontSize ?? 56,
   color: overrides.color ?? "#ffffff",
   fontFamily: overrides.fontFamily ?? "Inter",

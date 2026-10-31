@@ -23,11 +23,11 @@ type LegacyDeviceFields = {
 const createId = () => Math.random().toString(36).substring(2, 9);
 
 export const DEFAULT_DEVICE_SHADOW: ShadowConfig = {
-  enabled: true,
+  enabled: false,
   color: "#000000",
-  blur: 50,
+  blur: 40,
   offsetX: 0,
-  offsetY: 25,
+  offsetY: 20,
 };
 
 export const getDeviceSpecById = (deviceId: string): DeviceSpec =>
@@ -57,15 +57,16 @@ export const createDeviceInstance = (
     screenshotSrc: overrides.screenshotSrc ?? null,
     x: overrides.x ?? 50,
     y: overrides.y ?? 30,
-    scale: overrides.scale ?? 85,
+    scale: overrides.scale ?? 70,
     rotation: overrides.rotation ?? 0,
     shadow: {
       ...DEFAULT_DEVICE_SHADOW,
       ...overrides.shadow,
     },
     style: overrides.style ?? "flat",
-    rotateY: overrides.rotateY ?? -15,
-    rotateX: overrides.rotateX ?? 5,
+    // 3D defaults only kick in when style === "3d"
+    rotateY: overrides.rotateY ?? -18,
+    rotateX: overrides.rotateX ?? 6,
     imageZoom: overrides.imageZoom ?? 1,
     imageOffsetX: overrides.imageOffsetX ?? 0,
     imageOffsetY: overrides.imageOffsetY ?? 0,

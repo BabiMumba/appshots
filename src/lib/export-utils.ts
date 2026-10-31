@@ -11,7 +11,9 @@ import { getDeviceColorById, getDeviceSpecById } from "./device-instances";
 import {
   getRenderableDevicesForScreenshot,
   getRenderableOverlaysForScreenshot,
+  getRenderableShapesForScreenshot,
 } from "./device-overflow";
+import type { ShapeOverlay } from "../types";
 import {
   gradientEndpoints,
   resolveGradientColors,
@@ -28,6 +30,13 @@ interface ExportOptions {
   exportSize?: ExportSize;
   /** Width the user designed against (active preview export size) */
   designWidth?: number;
+  /** When >1, ZIP nests files under locale folders */
+  locales?: string[];
+  baseLocale?: string;
+  resolveLocaleScreenshots?: (
+    screenshots: Screenshot[],
+    locale: string,
+  ) => Screenshot[];
 }
 
 /**
@@ -1042,18 +1051,18 @@ const exportOneSize = async ({
         img.onload = () => {
           const containerWidth = canvas.width * (overlayImg.width / 100);
           const containerHeight = canvas.height * (overlayImg.height / 100);
-          const imgAspect = img.naturalWidth / img.naturalHeight;
-          const containerAspect = containerWidth / containerHeight;
+          const imgAspect = img.naturalWidth / Math.max(img.naturalHeight, 1);
+          const containerAspect = containerWidth / Math.max(containerHeight, 1);
 
+          // object-fit: cover — fill frame, crop overflow (Canva-style crop)
           let drawWidth: number;
           let drawHeight: number;
-
           if (imgAspect > containerAspect) {
-            drawWidth = containerWidth;
-            drawHeight = containerWidth / imgAspect;
-          } else {
             drawHeight = containerHeight;
             drawWidth = containerHeight * imgAspect;
+          } else {
+            drawWidth = containerWidth;
+            drawHeight = containerWidth / imgAspect;
           }
 
           const centerX = canvas.width * (renderX / 100);
@@ -1063,6 +1072,10 @@ const exportOneSize = async ({
           ctx.save();
           ctx.translate(centerX, centerY);
           ctx.rotate((rotation * Math.PI) / 180);
+          ctx.globalAlpha = Math.min(
+            1,
+            Math.max(0, (overlayImg.opacity ?? 100) / 100),
+          );
 
           if (overlayImg.shadow?.enabled) {
             ctx.shadowColor = overlayImg.shadow.color;
@@ -1071,6 +1084,14 @@ const exportOneSize = async ({
             ctx.shadowOffsetY = overlayImg.shadow.offsetY * scaleX;
           }
 
+          ctx.beginPath();
+          ctx.rect(
+            -containerWidth / 2,
+            -containerHeight / 2,
+            containerWidth,
+            containerHeight,
+          );
+          ctx.clip();
           ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
           ctx.restore();
           resolve();
@@ -1113,11 +1134,92 @@ const exportOneSize = async ({
       });
     };
 
+    const drawOneShape = async (
+      shape: ShapeOverlay,
+      renderX: number = shape.x,
+    ) => {
+      const containerWidth = canvas.width * (shape.width / 100);
+      const containerHeight = canvas.height * (shape.height / 100);
+      const centerX = canvas.width * (renderX / 100);
+      const centerY = canvas.height * (shape.y / 100);
+      const rotation = shape.rotation ?? 0;
+      // Convert % radius to px (CSS % of shorter side)
+      const shorter = Math.min(containerWidth, containerHeight);
+      const radiusPx =
+        shape.form === "circle"
+          ? shorter / 2
+          : (Math.max(0, Math.min(50, shape.cornerRadius)) / 100) * shorter;
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.globalAlpha = Math.min(1, Math.max(0, (shape.opacity ?? 100) / 100));
+
+      if (shape.shadow?.enabled) {
+        ctx.shadowColor = shape.shadow.color;
+        ctx.shadowBlur = shape.shadow.blur * scaleX;
+        ctx.shadowOffsetX = shape.shadow.offsetX * scaleX;
+        ctx.shadowOffsetY = shape.shadow.offsetY * scaleX;
+      }
+
+      const x0 = -containerWidth / 2;
+      const y0 = -containerHeight / 2;
+      ctx.beginPath();
+      if (shape.form === "circle") {
+        ctx.ellipse(0, 0, containerWidth / 2, containerHeight / 2, 0, 0, Math.PI * 2);
+      } else {
+        const r = Math.min(radiusPx, containerWidth / 2, containerHeight / 2);
+        ctx.moveTo(x0 + r, y0);
+        ctx.arcTo(x0 + containerWidth, y0, x0 + containerWidth, y0 + containerHeight, r);
+        ctx.arcTo(x0 + containerWidth, y0 + containerHeight, x0, y0 + containerHeight, r);
+        ctx.arcTo(x0, y0 + containerHeight, x0, y0, r);
+        ctx.arcTo(x0, y0, x0 + containerWidth, y0, r);
+        ctx.closePath();
+      }
+
+      if (shape.fillMode === "image" && shape.fillImage) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise<void>((resolve) => {
+          img.onload = () => {
+            ctx.save();
+            ctx.clip();
+            const imgAspect = img.naturalWidth / Math.max(img.naturalHeight, 1);
+            const boxAspect = containerWidth / Math.max(containerHeight, 1);
+            let dw: number;
+            let dh: number;
+            if (imgAspect > boxAspect) {
+              dh = containerHeight;
+              dw = dh * imgAspect;
+            } else {
+              dw = containerWidth;
+              dh = dw / imgAspect;
+            }
+            const ox = Math.min(50, Math.max(-50, shape.imageOffsetX ?? 0));
+            const oy = Math.min(50, Math.max(-50, shape.imageOffsetY ?? 0));
+            const tx = -(ox / 50) * ((dw - containerWidth) / 2);
+            const ty = -(oy / 50) * ((dh - containerHeight) / 2);
+            ctx.drawImage(img, -dw / 2 + tx, -dh / 2 + ty, dw, dh);
+            ctx.restore();
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = shape.fillImage!;
+        });
+      } else {
+        ctx.fillStyle = shape.fillColor || "#ffffff";
+        ctx.fill();
+      }
+
+      ctx.restore();
+    };
+
     const renderableDevices = getRenderableDevicesForScreenshot(screenshots, i);
     const renderableOverlays = getRenderableOverlaysForScreenshot(
       screenshots,
       i,
     );
+    const renderableShapes = getRenderableShapesForScreenshot(screenshots, i);
     const layerOrder = ensureLayerOrder(screenshot);
 
     type PaintJob = { z: number; paint: () => void | Promise<void> };
@@ -1127,24 +1229,34 @@ const exportOneSize = async ({
       if (key.startsWith("text:")) {
         const textId = key.slice(5);
         const text = (screenshot.texts ?? []).find((t) => t.id === textId);
-        if (text) {
+        if (text && !text.hidden) {
           jobs.push({
             z: zIndexForLayer(layerOrder, key),
             paint: () => drawTextOverlay(text),
           });
         }
       }
-      // Images + devices (owner & guests) via renderable* below
+      // Images + devices + shapes (owner & guests) via renderable* below
     }
 
     for (const item of renderableOverlays) {
+      if (item.image.hidden) continue;
       jobs.push({
         z: item.layerZIndex,
         paint: () => drawOneOverlay(item.image, item.localX),
       });
     }
 
+    for (const item of renderableShapes) {
+      if (item.shape.hidden) continue;
+      jobs.push({
+        z: item.layerZIndex,
+        paint: () => drawOneShape(item.shape, item.localX),
+      });
+    }
+
     for (const item of renderableDevices) {
+      if (item.device.hidden) continue;
       jobs.push({
         z: item.layerZIndex,
         paint: () =>
@@ -1181,6 +1293,8 @@ export const exportScreenshots = async ({
   exportSizes: sizesArg,
   exportSize,
   designWidth,
+  locales,
+  resolveLocaleScreenshots,
 }: ExportOptions) => {
   await document.fonts.ready;
 
@@ -1204,15 +1318,32 @@ export const exportScreenshots = async ({
 
   const baseWidth = designWidth || exportSize?.width || sizes[0].width;
   const exportedFiles: { name: string; data: string }[] = [];
+  const localeList =
+    locales && locales.length > 0 ? locales : ([null] as (string | null)[]);
+  const multiLocale = Boolean(locales && locales.length > 1);
 
   try {
-    for (const size of sizes) {
-      const files = await exportOneSize({
-        screenshots,
-        exportSize: size,
-        designWidth: baseWidth,
-      });
-      exportedFiles.push(...files);
+    for (const locale of localeList) {
+      const shotsForLocale =
+        locale && resolveLocaleScreenshots
+          ? resolveLocaleScreenshots(screenshots, locale)
+          : screenshots;
+      for (const size of sizes) {
+        const files = await exportOneSize({
+          screenshots: shotsForLocale,
+          exportSize: size,
+          designWidth: baseWidth,
+        });
+        for (const file of files) {
+          exportedFiles.push({
+            ...file,
+            name:
+              multiLocale && locale
+                ? `${locale}/${file.name}`
+                : file.name,
+          });
+        }
+      }
     }
   } catch (err) {
     if (err instanceof Error) throw err;
@@ -1224,7 +1355,7 @@ export const exportScreenshots = async ({
   }
 
   try {
-    if (exportedFiles.length === 1 && sizes.length === 1) {
+    if (exportedFiles.length === 1 && sizes.length === 1 && !multiLocale) {
       const singleName = getExportFilename(sizes[0], 0, 1);
       downloadFile(exportedFiles[0].data, singleName);
     } else {

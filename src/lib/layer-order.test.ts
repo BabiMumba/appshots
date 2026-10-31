@@ -10,6 +10,7 @@ const baseShot = {
   ],
   devices: [{ id: "d1" }],
   overlayImages: [],
+  shapes: [],
 } as unknown as Screenshot;
 
 describe("ensureLayerOrder", () => {

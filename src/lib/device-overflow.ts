@@ -1,4 +1,9 @@
-import type { DeviceInstance, ImageOverlay, Screenshot } from "../types";
+import type {
+  DeviceInstance,
+  ImageOverlay,
+  Screenshot,
+  ShapeOverlay,
+} from "../types";
 import { ensureLayerOrder, zIndexForLayer } from "./layer-order";
 
 const SCREEN_WIDTH_PERCENT = 100;
@@ -93,6 +98,16 @@ export interface RenderableOverlay {
   isOwner: boolean;
 }
 
+export interface RenderableShape {
+  shape: ShapeOverlay;
+  ownerScreenshotId: string;
+  ownerScreenshotIndex: number;
+  targetScreenshotIndex: number;
+  localX: number;
+  layerZIndex: number;
+  isOwner: boolean;
+}
+
 export const isOverlayVisibleInScreenshot = (
   image: ImageOverlay,
   localX: number,
@@ -133,4 +148,43 @@ export const getRenderableOverlaysForScreenshot = (
       .filter(({ image, localX }) =>
         isOverlayVisibleInScreenshot(image, localX),
       );
+  });
+
+export const isShapeVisibleInScreenshot = (
+  shape: ShapeOverlay,
+  localX: number,
+): boolean => {
+  const halfWidth = shape.width / 2;
+  return (
+    localX + halfWidth > -VISIBILITY_BUFFER_PERCENT &&
+    localX - halfWidth < SCREEN_WIDTH_PERCENT + VISIBILITY_BUFFER_PERCENT
+  );
+};
+
+export const getRenderableShapesForScreenshot = (
+  screenshots: Screenshot[],
+  targetScreenshotIndex: number,
+  gapPercent = 0,
+): RenderableShape[] =>
+  screenshots.flatMap((screenshot, ownerScreenshotIndex) => {
+    const ownerOrder = ensureLayerOrder(screenshot);
+    return (screenshot.shapes ?? [])
+      .map((shape) => {
+        const localX = getDeviceLocalXForScreenshot(
+          shape.x,
+          ownerScreenshotIndex,
+          targetScreenshotIndex,
+          gapPercent,
+        );
+        return {
+          shape,
+          ownerScreenshotId: screenshot.id,
+          ownerScreenshotIndex,
+          targetScreenshotIndex,
+          localX,
+          layerZIndex: zIndexForLayer(ownerOrder, `shape:${shape.id}`),
+          isOwner: ownerScreenshotIndex === targetScreenshotIndex,
+        };
+      })
+      .filter(({ shape, localX }) => isShapeVisibleInScreenshot(shape, localX));
   });

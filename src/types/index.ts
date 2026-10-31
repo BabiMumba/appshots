@@ -61,7 +61,40 @@ export type ImageOverlay = {
   height: number;
   layer: "behind" | "front";
   rotation: number;
+  /** 0–100 */
+  opacity: number;
   shadow: ShadowConfig;
+  /** Soft-hide from canvas + export */
+  hidden?: boolean;
+  /** Prevent drag / resize / rotate */
+  locked?: boolean;
+};
+
+/** Floating marketing block (card / pill / circle) — not a device frame */
+export type ShapeForm = "rectangle" | "rounded" | "square" | "circle";
+
+export type ShapeOverlay = {
+  id: string;
+  form: ShapeForm;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  /** 0–50 ≈ CSS border-radius as % of the shorter side */
+  cornerRadius: number;
+  fillMode: "color" | "image";
+  fillColor: string;
+  fillImage: string | null;
+  /** Image pan inside the mask (−50…50), Canva-style crop */
+  imageOffsetX: number;
+  imageOffsetY: number;
+  /** 0–100 */
+  opacity: number;
+  layer: "behind" | "front";
+  shadow: ShadowConfig;
+  hidden?: boolean;
+  locked?: boolean;
 };
 
 export type DeviceStyle = "flat" | "3d";
@@ -85,6 +118,8 @@ export type DeviceInstance = {
   imageOffsetX: number;
   /** Vertical pan of screen image as % of screen (-50..50) */
   imageOffsetY: number;
+  hidden?: boolean;
+  locked?: boolean;
 };
 
 export type TextAlign = "left" | "center" | "right";
@@ -92,7 +127,13 @@ export type TextAlign = "left" | "center" | "right";
 /** Free-form text block on a screenshot (any number per screen). */
 export type TextOverlay = {
   id: string;
+  /** HTML for the active project locale */
   content: string;
+  /**
+   * Translations keyed by locale code. `content` mirrors `translations[activeLocale]`.
+   * Missing keys fall back to the project's base locale / content.
+   */
+  translations?: Record<string, string>;
   x: number;
   y: number;
   width: number;
@@ -103,6 +144,8 @@ export type TextOverlay = {
   align: TextAlign;
   uppercase: boolean;
   fontWeight: 600 | 700;
+  hidden?: boolean;
+  locked?: boolean;
 };
 
 export type Screenshot = {
@@ -146,18 +189,20 @@ export type Screenshot = {
   headlineUppercase: boolean;
   subheadlineUppercase: boolean;
   overlayImages: ImageOverlay[];
+  /** Floating shape blocks (cards, circles, etc.) */
+  shapes: ShapeOverlay[];
   devices: DeviceInstance[];
   activeDeviceId: string;
   /**
    * Bottom → top stacking order.
-   * Keys: "text:{id}" | "device:{id}" | "image:{id}"
+   * Keys: "text:{id}" | "device:{id}" | "image:{id}" | "shape:{id}"
    * Legacy "headline" / "subheadline" are remapped on load.
    */
   layerOrder: string[];
 };
 
 export type SelectedElement = {
-  type: "text" | "image" | "device";
+  type: "text" | "image" | "device" | "shape";
   screenshotId: string;
   id?: string;
 };
@@ -215,6 +260,13 @@ export type Project = {
   exportSizeIds: string[];
   /** Active screenshot ID */
   activeScreenshotId: string;
+  /**
+   * Locales for store listing copy (shared layout). First entry is the base.
+   * @default ["en"]
+   */
+  locales?: string[];
+  /** Currently edited / previewed locale */
+  activeLocale?: string;
   /**
    * @deprecated Prefer per-screenshot font sizes. Kept for migration.
    */

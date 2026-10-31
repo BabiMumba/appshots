@@ -32,7 +32,7 @@ export { TextElement } from "./TextElement";
 export { OverlayImage } from "./OverlayImage";
 export { DeviceContainer } from "./DeviceContainer";
 export { RemoveButton } from "./RemoveButton";
-export { SelectionHandles } from "./SelectionHandles";
+export { SelectionHandles, type ResizeHandle } from "./SelectionHandles";
 
 // Hooks
 export { useResizeObserver } from "./useResizeObserver";

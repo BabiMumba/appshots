@@ -29,6 +29,14 @@ import {
   type FormatTriState,
   type InlineFormatState,
 } from "../../lib/text-format-state";
+import {
+  formatBarBtn,
+  formatBarBtnActive,
+  formatBarLabel,
+  formatBarRoot,
+  formatBarSep,
+  formatBarWell,
+} from "./format-bar-styles";
 
 interface TextFormatBarProps {
   label: string;
@@ -50,11 +58,10 @@ interface TextFormatBarProps {
   onOpenFontPicker: () => void;
 }
 
-const btn =
-  "inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-300 hover:bg-white/10 hover:text-white transition-colors";
-const btnActive = "bg-sky-500/25 text-sky-300 ring-1 ring-sky-400/40";
+const btn = formatBarBtn;
+const btnActive = formatBarBtnActive;
 const btnMixed =
-  "bg-sky-500/10 text-sky-200/90 ring-1 ring-dashed ring-sky-400/50";
+  "bg-[var(--ed-accent-soft)] text-[var(--ed-accent-fg)] ring-1 ring-dashed ring-sky-500/40";
 
 const formatClass = (state: FormatTriState) => {
   if (state === "on") return btnActive;
@@ -161,13 +168,8 @@ export const TextFormatBar = ({
     : "#ffffff";
 
   return (
-    <div
-      className="flex items-center gap-1 px-3 h-12 border-b border-white/10 bg-[#161616] overflow-x-auto"
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <span className="text-[11px] uppercase tracking-wide text-gray-500 mr-2 shrink-0">
-        {label}
-      </span>
+    <div className={formatBarRoot} onMouseDown={(e) => e.stopPropagation()}>
+      <span className={formatBarLabel}>{label}</span>
 
       <button
         type="button"
@@ -184,19 +186,19 @@ export const TextFormatBar = ({
         <span className="text-xs">{isEditing ? "Editing" : "Edit"}</span>
       </button>
 
-      <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />
+      <div className={formatBarSep} />
 
       <button
         type="button"
         title="Change font"
-        className={`${btn} w-auto max-w-[160px] px-2.5 gap-1.5 border border-white/10`}
+        className={`${btn} w-auto max-w-[160px] px-2.5 gap-1.5 border border-[var(--ed-border)]`}
         onClick={onOpenFontPicker}
       >
         <CaseSensitive className="w-3.5 h-3.5 shrink-0" />
         <span className="text-xs font-medium truncate">{fontFamily}</span>
       </button>
 
-      <div className="flex items-center rounded-md border border-white/10 bg-black/20 shrink-0">
+      <div className={formatBarWell}>
         <button
           type="button"
           title="Smaller"
@@ -213,7 +215,7 @@ export const TextFormatBar = ({
           onChange={(e) =>
             onFontSizeChange(Number(e.target.value) || fontSize)
           }
-          className="w-12 h-8 text-xs text-center bg-transparent text-gray-100 border-x border-white/10 outline-none"
+          className="w-12 h-8 text-xs text-center bg-transparent text-[var(--ed-fg)] border-x border-[var(--ed-border)] outline-none"
           title="Font size"
         />
         <button
@@ -253,7 +255,7 @@ export const TextFormatBar = ({
         />
       </label>
 
-      <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />
+      <div className={formatBarSep} />
 
       <button
         type="button"
@@ -306,7 +308,7 @@ export const TextFormatBar = ({
         AA
       </button>
 
-      <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />
+      <div className={formatBarSep} />
 
       <button
         type="button"

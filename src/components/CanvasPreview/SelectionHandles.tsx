@@ -2,16 +2,27 @@
  * SelectionHandles Component
  *
  * Interactive corner / side / rotation handles (Canva-style).
+ * Corners = uniform scale; side pills = crop / stretch one axis.
  */
 
 import type React from "react";
 
-type ResizeHandle = "e" | "w" | "se" | "sw" | "ne" | "nw";
+export type ResizeHandle =
+  | "n"
+  | "s"
+  | "e"
+  | "w"
+  | "se"
+  | "sw"
+  | "ne"
+  | "nw";
 
 interface SelectionHandlesProps {
   showSideHandles?: boolean;
   showCorners?: boolean;
   showRotation?: boolean;
+  /** Canva places rotate beside the frame; default top to clear quick actions */
+  rotationPlacement?: "top" | "right";
   onResizeStart?: (e: React.MouseEvent, handle: ResizeHandle) => void;
   onRotateStart?: (e: React.MouseEvent) => void;
 }
@@ -24,6 +35,16 @@ const CORNERS: { handle: ResizeHandle; className: string; cursor: string }[] = [
 ];
 
 const SIDES: { handle: ResizeHandle; className: string; cursor: string }[] = [
+  {
+    handle: "n",
+    className: "-top-1.5 left-1/2 -translate-x-1/2 w-4 h-1.5 rounded-sm",
+    cursor: "ns-resize",
+  },
+  {
+    handle: "s",
+    className: "-bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-1.5 rounded-sm",
+    cursor: "ns-resize",
+  },
   {
     handle: "w",
     className: "top-1/2 -left-1.5 -translate-y-1/2 w-1.5 h-4 rounded-sm",
@@ -40,6 +61,7 @@ export const SelectionHandles = ({
   showSideHandles = false,
   showCorners = true,
   showRotation = false,
+  rotationPlacement = "top",
   onResizeStart,
   onRotateStart,
 }: SelectionHandlesProps) => (
@@ -74,7 +96,11 @@ export const SelectionHandles = ({
       <button
         type="button"
         title="Rotate"
-        className="absolute -top-8 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-white border-2 border-violet-500 text-violet-600 flex items-center justify-center shadow-sm z-20 pointer-events-auto cursor-grab active:cursor-grabbing"
+        className={
+          rotationPlacement === "right"
+            ? "absolute top-1/2 -right-9 -translate-y-1/2 w-6 h-6 rounded-full bg-white border-2 border-violet-500 text-violet-600 flex items-center justify-center shadow-sm z-20 pointer-events-auto cursor-grab active:cursor-grabbing"
+            : "absolute -top-8 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-white border-2 border-violet-500 text-violet-600 flex items-center justify-center shadow-sm z-20 pointer-events-auto cursor-grab active:cursor-grabbing"
+        }
         onMouseDown={(e) => onRotateStart?.(e)}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

@@ -67,8 +67,8 @@ export const getTextSelectionStyles = (
 export const getImageSelectionStyles = (
   isSelected: boolean,
 ): React.CSSProperties => ({
-  outline: isSelected ? `2px dashed ${SELECTION_COLORS.imageOutline}` : "none",
-  outlineOffset: "4px",
+  outline: isSelected ? `2px solid ${SELECTION_COLORS.outline}` : "none",
+  outlineOffset: "0px",
 });
 
 export const getDeviceSelectionStyles = (
@@ -95,5 +95,6 @@ export const getOverlayImageStyles = (
   width: `${image.width}%`,
   height: `${image.height}%`,
   zIndex,
+  opacity: Math.min(1, Math.max(0, (image.opacity ?? 100) / 100)),
   ...getImageSelectionStyles(isSelected),
 });

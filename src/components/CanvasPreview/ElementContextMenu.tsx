@@ -10,6 +10,7 @@ import {
   ChevronsDown,
   Copy,
   Trash2,
+  ImageIcon,
 } from "lucide-react";
 
 export type ContextMenuAction =
@@ -17,6 +18,7 @@ export type ContextMenuAction =
   | "send-backward"
   | "bring-to-front"
   | "send-to-back"
+  | "use-as-background"
   | "duplicate"
   | "delete";
 
@@ -24,6 +26,10 @@ interface ElementContextMenuProps {
   x: number;
   y: number;
   showLayerActions: boolean;
+  /** Overlay image → promote to canvas background */
+  showUseAsBackground?: boolean;
+  /** Soften copy when a background image already exists */
+  hasBackgroundImage?: boolean;
   onAction: (action: ContextMenuAction) => void;
   onClose: () => void;
 }
@@ -35,6 +41,8 @@ export const ElementContextMenu = ({
   x,
   y,
   showLayerActions,
+  showUseAsBackground = false,
+  hasBackgroundImage = false,
   onAction,
   onClose,
 }: ElementContextMenuProps) => {
@@ -101,6 +109,21 @@ export const ElementContextMenu = ({
           >
             <ChevronsDown className="w-3.5 h-3.5" />
             Send to back
+          </button>
+          <div className="my-1 h-px bg-neutral-200" />
+        </>
+      )}
+      {showUseAsBackground && (
+        <>
+          <button
+            type="button"
+            className={ITEM}
+            onClick={() => onAction("use-as-background")}
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            {hasBackgroundImage
+              ? "Replace background"
+              : "Use as background"}
           </button>
           <div className="my-1 h-px bg-neutral-200" />
         </>

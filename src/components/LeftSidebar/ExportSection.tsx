@@ -3,6 +3,7 @@
  * Phone / tablet / feature are separate projects (no shared-canvas toggle).
  */
 
+import { useState } from "react";
 import type { ExportSize, ProjectKind, Screenshot } from "../../types";
 import type { ExportPack } from "../../constants";
 import {
@@ -11,6 +12,7 @@ import {
   projectKindLabel,
 } from "../../constants";
 import { runExportPreflight } from "../../lib/export-preflight";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { SidebarSection } from "./SidebarSection";
 import { STYLES } from "./constants";
 
@@ -55,6 +57,7 @@ export const ExportSection = ({
   onExport,
   onDismissError,
 }: ExportSectionProps) => {
+  const [pendingKind, setPendingKind] = useState<ProjectKind | null>(null);
   const sizesForMode = exportSizesForProjectKind(projectKind);
   const packsForMode = exportPacksForProjectKind(projectKind);
   const groups = groupSizes(sizesForMode);
@@ -82,16 +85,33 @@ export const ExportSection = ({
     ] as const
   ).filter(([k]) => k !== projectKind);
 
+  const pendingLabel = pendingKind ? projectKindLabel(pendingKind) : "";
+
   return (
     <SidebarSection title="Export">
-      <div className="mb-3 rounded-lg border border-white/10 bg-[#2a2a2a] px-3 py-2">
-        <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+      <ConfirmDialog
+        open={pendingKind !== null}
+        title={`Start a separate “${pendingLabel}” project?`}
+        description="Your current project stays in the list — nothing is overwritten. You can switch back anytime."
+        confirmLabel="Create project"
+        cancelLabel="Cancel"
+        onCancel={() => setPendingKind(null)}
+        onConfirm={() => {
+          if (!pendingKind) return;
+          const kind = pendingKind;
+          setPendingKind(null);
+          onCreateProjectOfKind(kind);
+        }}
+      />
+
+      <div className="mb-3 rounded-lg border border-[var(--ed-border)] bg-[var(--ed-muted)] px-3 py-2">
+        <p className="text-[10px] uppercase tracking-wide text-[var(--ed-fg-muted)]">
           This project
         </p>
-        <p className="mt-0.5 text-sm font-medium text-white">
+        <p className="mt-0.5 text-sm font-medium text-[var(--ed-fg)]">
           {projectKindLabel(projectKind)}
         </p>
-        <p className="mt-1 text-[10px] text-zinc-500 leading-relaxed">
+        <p className="mt-1 text-[10px] text-[var(--ed-fg-muted)] leading-relaxed">
           {projectKind === "feature"
             ? "One Play banner artboard (1024×500). Screenshots live in a separate project."
             : projectKind === "tablet"
@@ -102,14 +122,16 @@ export const ExportSection = ({
 
       {otherKinds.length > 0 && (
         <div className="mb-3 space-y-1">
-          <p className="text-[10px] text-zinc-500">Start a separate project</p>
+          <p className="text-[10px] text-[var(--ed-fg-muted)]">
+            Start a separate project
+          </p>
           {otherKinds.map(([kind, label]) => (
             <button
               key={kind}
               type="button"
               disabled={isExporting}
-              onClick={() => onCreateProjectOfKind(kind)}
-              className="w-full rounded-md border border-white/10 bg-transparent px-2.5 py-1.5 text-left text-[11px] text-zinc-300 hover:border-white/25 hover:bg-white/5 disabled:opacity-50"
+              onClick={() => setPendingKind(kind)}
+              className="w-full rounded-md border border-[var(--ed-border)] bg-transparent px-2.5 py-1.5 text-left text-[11px] text-[var(--ed-fg-muted)] hover:border-[var(--ed-fg-muted)] hover:bg-[var(--ed-muted)] disabled:opacity-50"
             >
               + {label}
             </button>
@@ -210,18 +232,15 @@ export const ExportSection = ({
         </div>
       )}
 
-      {preflight.length > 0 && (
+      {preflight.filter((i) => i.level === "error").length > 0 && (
         <ul className="mt-3 space-y-1">
-          {preflight.map((item) => (
-            <li
-              key={item.id}
-              className={`text-[10px] leading-relaxed ${
-                item.level === "error" ? "text-red-400" : "text-amber-400/90"
-              }`}
-            >
-              {item.message}
-            </li>
-          ))}
+          {preflight
+            .filter((i) => i.level === "error")
+            .map((item) => (
+              <li key={item.id} className="text-[10px] leading-relaxed text-red-400">
+                {item.message}
+              </li>
+            ))}
         </ul>
       )}
 

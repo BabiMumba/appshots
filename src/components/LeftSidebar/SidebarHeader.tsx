@@ -10,10 +10,10 @@ export const SidebarHeader = () => (
   <div className={STYLES.header}>
     <Link to="/" className="group block">
       <BrandMark
-        className="text-white text-base group-hover:text-sky-300 transition-colors"
+        className="text-[var(--ed-fg)] text-base group-hover:text-sky-500 transition-colors"
         size={26}
       />
-      <p className="text-xs text-gray-400 mt-2">
+      <p className="text-xs text-[var(--ed-fg-muted)] mt-2">
         Phone, tablet &amp; feature graphic — separate projects
       </p>
     </Link>

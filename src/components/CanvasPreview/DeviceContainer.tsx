@@ -6,7 +6,7 @@
  */
 
 import type { DeviceInstance } from "../../types";
-import { SelectionHandles } from "./SelectionHandles";
+import { SelectionHandles, type ResizeHandle } from "./SelectionHandles";
 import { DeviceFrame } from "../DeviceFrame";
 import { DeviceFrame3D } from "../DeviceFrame/DeviceFrame3D";
 import { getDeviceSelectionStyles, getDropShadowFilter } from "./utils";
@@ -15,6 +15,8 @@ import { getDeviceColorById, getDeviceSpecById } from "../../lib/device-instance
 interface DeviceContainerProps {
   /** Device instance data containing render settings */
   device: DeviceInstance;
+  /** Owner screenshot id (for overlay→screen drop hit-testing) */
+  ownerScreenshotId?: string;
   /** Horizontal position override in screenshot-local percent */
   renderX?: number;
   /** Z-index for stacking order */
@@ -27,16 +29,16 @@ interface DeviceContainerProps {
   showHandles?: boolean;
   /** Handler for mouse down event */
   onMouseDown: (e: React.MouseEvent) => void;
-  onResizeStart?: (
-    e: React.MouseEvent,
-    handle: "e" | "w" | "se" | "sw" | "ne" | "nw",
-  ) => void;
+  onResizeStart?: (e: React.MouseEvent, handle: ResizeHandle) => void;
   onRotateStart?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
   onScreenImageFile?: (file: File) => void;
   shadowScale?: number;
 }
+
+const hasImageFileDrag = (e: React.DragEvent) =>
+  Array.from(e.dataTransfer.types).includes("Files");
 
 /**
  * DeviceContainer - Positioned device frame wrapper
@@ -46,6 +48,7 @@ interface DeviceContainerProps {
  */
 export const DeviceContainer = ({
   device,
+  ownerScreenshotId,
   renderX = device.x,
   zIndex,
   isSelected,
@@ -72,6 +75,8 @@ export const DeviceContainer = ({
   return (
     <div
       data-draggable-element="device"
+      data-device-instance={device.id}
+      data-owner-screenshot-id={ownerScreenshotId}
       className="absolute cursor-move select-none"
       style={{
         left: `${renderX}%`,
@@ -96,6 +101,27 @@ export const DeviceContainer = ({
           : undefined
       }
       onClick={(e) => e.stopPropagation()}
+      onDragOver={
+        isInteractive && onScreenImageFile
+          ? (e) => {
+              if (!hasImageFileDrag(e)) return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+            }
+          : undefined
+      }
+      onDrop={
+        isInteractive && onScreenImageFile
+          ? (e) => {
+              if (!hasImageFileDrag(e)) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const file = e.dataTransfer.files?.[0];
+              if (file?.type.startsWith("image/")) onScreenImageFile(file);
+            }
+          : undefined
+      }
     >
       <div className="relative">
         {is3D ? (

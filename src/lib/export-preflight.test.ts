@@ -5,7 +5,9 @@ import { createDeviceInstance } from "./device-instances";
 import { createDefaultTexts, syncLegacyTextFields } from "./text-overlays";
 import { buildDefaultLayerOrder } from "./layer-order";
 
-const size = (partial: Partial<ExportSize> & Pick<ExportSize, "id">): ExportSize => ({
+const size = (
+  partial: Partial<ExportSize> & Pick<ExportSize, "id">,
+): ExportSize => ({
   label: partial.id,
   shortLabel: partial.id,
   width: 1206,
@@ -28,11 +30,13 @@ const blankShot = (): Screenshot => {
     customGradient: null,
     backgroundImage: null,
     overlayImages: [],
+    shapes: [],
     devices: [device],
     activeDeviceId: device.id,
     layerOrder: buildDefaultLayerOrder({
       devices: [device],
       overlayImages: [],
+      shapes: [],
       texts,
     }),
   };
@@ -49,11 +53,21 @@ describe("runExportPreflight", () => {
     );
   });
 
-  it("warns when a device has no image", () => {
+  it("errors when no sizes are selected", () => {
+    const issues = runExportPreflight({
+      screenshots: [blankShot()],
+      exportSizes: [],
+    });
+    expect(issues.some((i) => i.id === "no-sizes" && i.level === "error")).toBe(
+      true,
+    );
+  });
+
+  it("stays silent for a normal export (no soft warnings)", () => {
     const issues = runExportPreflight({
       screenshots: [blankShot()],
       exportSizes: [size({ id: "a", required: true })],
     });
-    expect(issues.some((i) => i.id === "empty-screens")).toBe(true);
+    expect(issues).toEqual([]);
   });
 });

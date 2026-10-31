@@ -10,6 +10,7 @@ import type { OverlayImagePropertiesProps } from "./types";
 export const OverlayImageProperties = ({
   image,
   onSizeChange,
+  onOpacityChange,
   onLayerChange,
   onShadowToggle,
   onShadowBlurChange,
@@ -22,6 +23,15 @@ export const OverlayImageProperties = ({
       max={SLIDER_RANGES.imageSize.max}
       onChange={onSizeChange}
       showValue={false}
+    />
+
+    <RangeSlider
+      label="Opacity"
+      value={image.opacity ?? 100}
+      min={0}
+      max={100}
+      unit="%"
+      onChange={onOpacityChange}
     />
 
     <label className="block">

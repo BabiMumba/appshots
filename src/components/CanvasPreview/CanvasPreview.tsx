@@ -8,25 +8,30 @@ import {
   gapPercentFromCardWidth,
   getRenderableDevicesForScreenshot,
   getRenderableOverlaysForScreenshot,
+  getRenderableShapesForScreenshot,
   PREVIEW_SCREEN_GAP_PX,
 } from "../../lib/device-overflow";
 import { Toolbar } from "./Toolbar";
 import { Filmstrip } from "./Filmstrip";
 import { ScreenshotCard } from "./ScreenshotCard";
 import { TextFormatBar } from "./TextFormatBar";
+import { ShapeFormatBar } from "./ShapeFormatBar";
+import { CanvasFormatBar } from "./CanvasFormatBar";
 import {
   resolveZoomScale,
-  stepZoom,
+  wheelZoom,
   type CanvasZoomValue,
 } from "./CanvasZoomControls";
 import { useResizeObserver } from "./useResizeObserver";
 import { cloneDeviceInstance } from "../../lib/device-instances";
+import { ensureLayerOrder } from "../../lib/layer-order";
 import {
   ElementContextMenu,
   type ContextMenuAction,
 } from "./ElementContextMenu";
 import type { SelectedElement, TextAlign, TextOverlay } from "../../types";
 import { syncLegacyTextFields } from "../../lib/text-overlays";
+import { gradientPresets } from "../../constants";
 
 const withSyncedTexts = (texts: TextOverlay[]) => ({
   texts,
@@ -72,9 +77,20 @@ export const CanvasPreview = () => {
     removeOverlayImage,
     removeDevice,
     activeScreenshot,
+    snapGuides,
+    snapEnabled,
+    setSnapEnabled,
+    locales,
+    activeLocale,
+    setActiveLocale,
+    addLocale,
+    removeLocale,
+    replacePrimaryLocale,
     moveElementLayer,
     fileInputRef,
     applyScreenImageFile,
+    addOverlayImageToScreenshot,
+    promoteOverlayToBackground,
     inlineEditing,
     startInlineEditing,
     stopInlineEditing,
@@ -84,24 +100,41 @@ export const CanvasPreview = () => {
     updateText,
     removeText,
     duplicateText,
+    addShape,
+    removeShape,
+    updateShape,
+    setShapeFillImage,
+    ingestImageFile,
     assetKind,
   } = useEditor();
 
   const isFeature = assetKind === "feature";
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [croppingShapeId, setCroppingShapeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!croppingShapeId) return;
+    if (
+      selectedElement?.type !== "shape" ||
+      selectedElement.id !== croppingShapeId
+    ) {
+      setCroppingShapeId(null);
+    }
+  }, [selectedElement, croppingShapeId]);
   const screensRowRef = useRef<HTMLDivElement>(null);
   const [previewGapPercent, setPreviewGapPercent] = useState(0);
   const [canvasZoom, setCanvasZoom] = useState<CanvasZoomValue>("fit");
   const [fitScale, setFitScale] = useState(0.5);
+  const ZOOM_MIN = 0.15;
+  const ZOOM_MAX = 3;
 
-  // Reset to fit when entering feature mode / size changes
+  // Reset to fit when project kind / export size changes
   useEffect(() => {
-    if (isFeature) setCanvasZoom("fit");
-  }, [isFeature, exportSize.id]);
+    setCanvasZoom("fit");
+  }, [assetKind, exportSize.id]);
 
-  // Measure viewport → fit scale for the 1024×500 artboard
+  // Measure viewport → fit scale (one artboard in view)
   useEffect(() => {
-    if (!isFeature) return;
     const el = canvasContainerRef.current;
     if (!el) return;
 
@@ -112,20 +145,24 @@ export const CanvasPreview = () => {
       const next = Math.min(
         w / exportSize.width,
         h / exportSize.height,
-        1.25,
+        isFeature ? 1.25 : 1,
       );
-      setFitScale(Math.max(0.15, next));
+      setFitScale(Math.max(ZOOM_MIN, next));
     };
 
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isFeature, exportSize.width, exportSize.height, canvasContainerRef]);
+  }, [
+    isFeature,
+    exportSize.width,
+    exportSize.height,
+    canvasContainerRef,
+  ]);
 
-  // Ctrl/Meta + wheel zoom on the feature artboard
+  // Ctrl/Meta + wheel → smooth continuous zoom; plain wheel scrolls/pans
   useEffect(() => {
-    if (!isFeature) return;
     const el = canvasContainerRef.current;
     if (!el) return;
 
@@ -133,13 +170,12 @@ export const CanvasPreview = () => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const current = resolveZoomScale(canvasZoom, fitScale);
-      const direction: 1 | -1 = e.deltaY < 0 ? 1 : -1;
-      setCanvasZoom(stepZoom(current, direction, 0.2, 2));
+      setCanvasZoom(wheelZoom(current, e.deltaY, ZOOM_MIN, ZOOM_MAX));
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [isFeature, canvasZoom, fitScale, canvasContainerRef]);
+  }, [canvasZoom, fitScale, canvasContainerRef]);
 
   useResizeObserver({
     elementRef: previewRef,
@@ -194,9 +230,18 @@ export const CanvasPreview = () => {
         ) ?? null)
       : null;
 
+  const selectedShape =
+    selectedElement?.type === "shape" && selectedElement.id
+      ? ((screenshots.find((s) => s.id === selectedElement.screenshotId) ??
+          activeScreenshot
+        ).shapes ?? []
+        ).find((s) => s.id === selectedElement.id) ?? null
+      : null;
+
   const safeDeselect = () => {
     if (Date.now() < suppressDeselectUntil.current) return;
     stopInlineEditing();
+    setCroppingShapeId(null);
     setSelectedElement(null);
     setContextMenu(null);
   };
@@ -232,6 +277,34 @@ export const CanvasPreview = () => {
       });
       return;
     }
+    if (target.type === "shape" && target.id) {
+      const shape = (activeScreenshot.shapes ?? []).find(
+        (s) => s.id === target.id,
+      );
+      if (!shape) return;
+      const clone = {
+        ...structuredClone(shape),
+        id: generateId(),
+        x: Math.min(shape.x + 4, 90),
+        y: Math.min(shape.y + 4, 90),
+      };
+      const shapes = [...(activeScreenshot.shapes ?? []), clone];
+      updateActiveScreenshot({
+        shapes,
+        layerOrder: [
+          ...ensureLayerOrder({ ...activeScreenshot, shapes }).filter(
+            (k) => k !== `shape:${clone.id}`,
+          ),
+          `shape:${clone.id}`,
+        ],
+      });
+      setSelectedElement({
+        type: "shape",
+        id: clone.id,
+        screenshotId: activeScreenshotId,
+      });
+      return;
+    }
     if (target.type === "device" && target.id) {
       const device = activeScreenshot.devices.find((d) => d.id === target.id);
       if (!device) return;
@@ -259,6 +332,10 @@ export const CanvasPreview = () => {
     if (!target || target.screenshotId !== activeScreenshotId) return;
     if (target.type === "image" && target.id) {
       removeOverlayImage(target.id);
+      return;
+    }
+    if (target.type === "shape" && target.id) {
+      removeShape(target.id);
       return;
     }
     if (target.type === "device" && target.id) {
@@ -289,6 +366,10 @@ export const CanvasPreview = () => {
 
     if (layerAction) {
       moveElementLayer(element.type, id, layerAction);
+    } else if (action === "use-as-background") {
+      if (element.type === "image" && id) {
+        promoteOverlayToBackground(id, element.screenshotId);
+      }
     } else if (action === "duplicate") {
       handleDuplicateElement(element);
     } else if (action === "delete") {
@@ -299,8 +380,8 @@ export const CanvasPreview = () => {
   };
 
   const effectiveZoom = resolveZoomScale(canvasZoom, fitScale);
-  const featureArtboardW = Math.round(exportSize.width * effectiveZoom);
-  const featureArtboardH = Math.round(exportSize.height * effectiveZoom);
+  const artboardW = Math.round(exportSize.width * effectiveZoom);
+  const artboardH = Math.round(exportSize.height * effectiveZoom);
 
   // Feature mode: only the active artboard (one Play banner)
   const visibleScreenshots = isFeature
@@ -312,11 +393,12 @@ export const CanvasPreview = () => {
       : screenshots.slice(0, 1);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="@container/canvas flex-1 flex flex-col overflow-hidden min-w-0">
       <Toolbar
         mode={assetKind}
         onAddScreenshot={addScreenshot}
         onAddText={addText}
+        onAddShape={() => addShape("rounded")}
         onDuplicateScreenshot={() => duplicateScreenshot()}
         onUndo={undo}
         onRedo={redo}
@@ -330,6 +412,14 @@ export const CanvasPreview = () => {
         zoom={canvasZoom}
         fitScale={fitScale}
         onZoomChange={setCanvasZoom}
+        snapEnabled={snapEnabled}
+        onSnapEnabledChange={setSnapEnabled}
+        locales={locales}
+        activeLocale={activeLocale}
+        onSelectLocale={setActiveLocale}
+        onAddLocale={addLocale}
+        onRemoveLocale={removeLocale}
+        onReplacePrimaryLocale={replacePrimaryLocale}
       />
 
       {!isFeature && (
@@ -346,7 +436,7 @@ export const CanvasPreview = () => {
         />
       )}
 
-      <div className="h-12 shrink-0 border-b border-white/10 bg-[#161616]">
+      <div className="h-12 shrink-0 border-b border-[var(--ed-border)] bg-[var(--ed-chip)]">
         {selectedText && selectedElement && selectedTextId ? (
           <TextFormatBar
             label="Text"
@@ -404,34 +494,52 @@ export const CanvasPreview = () => {
             }
             onOpenFontPicker={() => setIsFontPickerOpen(true)}
           />
+        ) : selectedShape && selectedElement?.id ? (
+          <ShapeFormatBar
+            shape={selectedShape}
+            onUpdate={(updates) => updateShape(selectedShape.id, updates)}
+            onSetFillImage={(file) => setShapeFillImage(selectedShape.id, file)}
+            onEnterCrop={() => {
+              if (selectedShape.fillMode === "image" && selectedShape.fillImage) {
+                setCroppingShapeId(selectedShape.id);
+              }
+            }}
+          />
         ) : (
-          <div className="h-full flex items-center px-3 text-[11px] text-gray-600">
-            Select a text · click again or double-click to edit · Enter also works
-          </div>
+          <CanvasFormatBar
+            screenshot={activeScreenshot}
+            gradientPresets={gradientPresets}
+            onUpdate={updateActiveScreenshot}
+            onIngestImage={ingestImageFile}
+          />
         )}
       </div>
 
       <div
         ref={canvasContainerRef}
-        className={
-          isFeature
-            ? "flex-1 overflow-auto bg-[#0a0a0a]"
-            : "flex-1 overflow-x-auto overflow-y-hidden bg-[#0a0a0a] p-6"
-        }
+        className="flex-1 overflow-auto bg-[var(--ed-canvas)] overscroll-contain"
         onClick={(e) => {
           if (e.target === e.currentTarget) safeDeselect();
         }}
       >
+        {/*
+          safe center: when zoomed past the viewport, align to start so
+          all edges stay reachable via scroll (classic flex center trap).
+        */}
         <div
           ref={screensRowRef}
-          className={
-            isFeature
-              ? "min-h-full min-w-full flex items-center justify-center p-8"
-              : "flex h-full min-w-max"
-          }
-          style={isFeature ? undefined : { gap: PREVIEW_SCREEN_GAP_PX }}
+          className="flex p-8"
+          style={{
+            gap: isFeature ? undefined : PREVIEW_SCREEN_GAP_PX,
+            minWidth: "100%",
+            minHeight: "100%",
+            width: "max-content",
+            height: "max-content",
+            alignItems: "safe center",
+            justifyContent: "safe center",
+          }}
           onClick={(e) => {
-            if (isFeature && e.target === e.currentTarget) safeDeselect();
+            if (e.target === e.currentTarget) safeDeselect();
           }}
         >
           {screensToRender.map((screenshot) => {
@@ -446,6 +554,11 @@ export const CanvasPreview = () => {
               Math.max(0, index),
               isFeature ? 0 : previewGapPercent,
             );
+            const renderableShapes = getRenderableShapesForScreenshot(
+              screenshots,
+              Math.max(0, index),
+              isFeature ? 0 : previewGapPercent,
+            );
 
             return (
               <ScreenshotCard
@@ -453,14 +566,18 @@ export const CanvasPreview = () => {
                 screenshot={screenshot}
                 renderableDevices={renderableDevices}
                 renderableOverlays={renderableOverlays}
+                renderableShapes={renderableShapes}
                 isActive={activeScreenshotId === screenshot.id}
                 canRemove={!isFeature && screenshots.length > 1}
                 selectedElement={selectedElement}
                 exportSize={exportSize}
                 previewRef={previewRef}
                 getBackgroundStyle={getBackgroundStyle}
-                artboardWidthPx={isFeature ? featureArtboardW : undefined}
-                artboardHeightPx={isFeature ? featureArtboardH : undefined}
+                snapGuides={
+                  activeScreenshotId === screenshot.id ? snapGuides : []
+                }
+                artboardWidthPx={artboardW}
+                artboardHeightPx={artboardH}
                 onSelect={() => {
                   if (activeScreenshotId !== screenshot.id) {
                     stopInlineEditing();
@@ -473,7 +590,51 @@ export const CanvasPreview = () => {
                 onElementMouseDown={handleElementMouseDown}
                 onElementMouseUp={handleElementMouseUp}
                 onResizeStart={handleResizeStart}
+                onCorrectOverlayFrame={(screenshotId, imageId, heightPercent) => {
+                  const shot = screenshots.find((s) => s.id === screenshotId);
+                  if (!shot) return;
+                  updateScreenshotById(
+                    screenshotId,
+                    {
+                      overlayImages: (shot.overlayImages ?? []).map((img) =>
+                        img.id === imageId
+                          ? { ...img, height: heightPercent }
+                          : img,
+                      ),
+                    },
+                    false,
+                  );
+                }}
                 onRotateStart={handleRotateStart}
+                croppingShapeId={croppingShapeId}
+                onShapeDoubleClick={(screenshotId, shapeId) => {
+                  if (activeScreenshotId !== screenshotId) {
+                    setActiveScreenshotId(screenshotId);
+                  }
+                  setSelectedElement({
+                    type: "shape",
+                    id: shapeId,
+                    screenshotId,
+                  });
+                  setCroppingShapeId(shapeId);
+                }}
+                onShapeImageOffset={(screenshotId, shapeId, ox, oy) => {
+                  const shot =
+                    screenshots.find((s) => s.id === screenshotId) ??
+                    activeScreenshot;
+                  updateScreenshotById(
+                    screenshotId,
+                    {
+                      shapes: (shot.shapes ?? []).map((s) =>
+                        s.id === shapeId
+                          ? { ...s, imageOffsetX: ox, imageOffsetY: oy }
+                          : s,
+                      ),
+                    },
+                    false,
+                  );
+                }}
+                onExitShapeCrop={() => setCroppingShapeId(null)}
                 onDeviceDoubleClick={(screenshotId, deviceId) => {
                   if (activeScreenshotId !== screenshotId) {
                     setActiveScreenshotId(screenshotId);
@@ -493,6 +654,9 @@ export const CanvasPreview = () => {
                 }}
                 onScreenImageFile={(file, screenshotId, deviceId) => {
                   applyScreenImageFile(file, { screenshotId, deviceId });
+                }}
+                onCanvasImageDrop={(file, screenshotId) => {
+                  addOverlayImageToScreenshot(file, screenshotId);
                 }}
                 editingTextId={
                   inlineEditing?.screenshotId === screenshot.id
@@ -541,6 +705,16 @@ export const CanvasPreview = () => {
           x={contextMenu.x}
           y={contextMenu.y}
           showLayerActions
+          showUseAsBackground={contextMenu.element.type === "image"}
+          hasBackgroundImage={(() => {
+            const shot =
+              screenshots.find(
+                (s) => s.id === contextMenu.element.screenshotId,
+              ) ?? activeScreenshot;
+            return (
+              shot.backgroundMode === "image" && Boolean(shot.backgroundImage)
+            );
+          })()}
           onAction={handleContextMenuAction}
           onClose={() => setContextMenu(null)}
         />

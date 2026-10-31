@@ -182,11 +182,20 @@ async function mapScreenshotImages(
       src: (await mapSrc(img.src)) ?? img.src,
     })),
   );
+  const shapes = await Promise.all(
+    (shot.shapes ?? []).map(async (shape) => ({
+      ...shape,
+      fillImage: shape.fillImage
+        ? ((await mapSrc(shape.fillImage)) ?? shape.fillImage)
+        : null,
+    })),
+  );
   return {
     ...shot,
     backgroundImage: await mapSrc(shot.backgroundImage),
     devices,
     overlayImages,
+    shapes,
   };
 }
 

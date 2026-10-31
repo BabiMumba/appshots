@@ -1,5 +1,5 @@
 /**
- * PositionPresets — one dropdown for common device layouts.
+ * PositionPresets — common phone layouts (incl. small feature-graphic sizes).
  */
 
 import type { DeviceInstance } from "../../types";
@@ -18,49 +18,118 @@ const PRESETS: {
   {
     id: "centered",
     label: "Centered",
-    settings: { scale: 65, y: 35, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
+    settings: {
+      scale: 65,
+      y: 35,
+      x: 50,
+      rotation: 0,
+      style: "flat",
+      rotateY: 0,
+      rotateX: 0,
+    },
   },
   {
     id: "bleed-bottom",
     label: "Bleed bottom",
-    settings: { scale: 70, y: 45, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
+    settings: {
+      scale: 70,
+      y: 48,
+      x: 50,
+      rotation: 0,
+      style: "flat",
+      rotateY: 0,
+      rotateX: 0,
+    },
   },
   {
-    id: "bleed-top",
-    label: "Bleed top",
-    settings: { scale: 70, y: 15, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
+    id: "feature-hero",
+    label: "Feature — hero phone",
+    settings: {
+      scale: 32,
+      x: 78,
+      y: 52,
+      rotation: 0,
+      style: "3d",
+      rotateY: -22,
+      rotateX: 4,
+      shadow: { enabled: false, color: "#000", blur: 40, offsetX: 0, offsetY: 20 },
+    },
   },
   {
-    id: "float-center",
-    label: "Float center",
-    settings: { scale: 55, y: 30, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
+    id: "feature-small",
+    label: "Feature — small phone",
+    settings: {
+      scale: 22,
+      x: 75,
+      y: 50,
+      rotation: 0,
+      style: "3d",
+      rotateY: -16,
+      rotateX: 3,
+      shadow: { enabled: false, color: "#000", blur: 40, offsetX: 0, offsetY: 20 },
+    },
+  },
+  {
+    id: "feature-cluster",
+    label: "Feature — cluster size",
+    settings: {
+      scale: 18,
+      x: 70,
+      y: 50,
+      rotation: 0,
+      style: "3d",
+      rotateY: -12,
+      rotateX: 4,
+      shadow: { enabled: false, color: "#000", blur: 40, offsetX: 0, offsetY: 20 },
+    },
   },
   {
     id: "tilt-left",
-    label: "Tilt left",
-    settings: { scale: 60, y: 35, rotation: -15, style: "flat", rotateY: 0, rotateX: 0 },
+    label: "Tilt left (flat)",
+    settings: {
+      scale: 55,
+      y: 40,
+      rotation: -12,
+      style: "flat",
+      rotateY: 0,
+      rotateX: 0,
+    },
   },
   {
     id: "tilt-right",
-    label: "Tilt right",
-    settings: { scale: 60, y: 35, rotation: 15, style: "flat", rotateY: 0, rotateX: 0 },
+    label: "Tilt right (flat)",
+    settings: {
+      scale: 55,
+      y: 40,
+      rotation: 12,
+      style: "flat",
+      rotateY: 0,
+      rotateX: 0,
+    },
   },
   {
     id: "perspective",
     label: "Perspective (3D)",
     settings: {
-      scale: 60,
-      y: 35,
+      scale: 48,
+      y: 40,
       rotation: 0,
       style: "3d",
-      rotateY: -20,
-      rotateX: 5,
+      rotateY: -24,
+      rotateX: 6,
     },
   },
   {
-    id: "float-bottom",
-    label: "Float bottom",
-    settings: { scale: 50, y: 50, rotation: 0, style: "flat", rotateY: 0, rotateX: 0 },
+    id: "perspective-right",
+    label: "Perspective right (3D)",
+    settings: {
+      scale: 48,
+      y: 40,
+      rotation: 0,
+      style: "3d",
+      rotateY: 24,
+      rotateX: 6,
+    },
   },
 ];
 
@@ -70,6 +139,7 @@ function matchPreset(device: DeviceInstance): string {
     if (
       device.scale === s.scale &&
       device.y === s.y &&
+      (s.x === undefined || device.x === s.x) &&
       device.rotation === s.rotation &&
       device.style === s.style
     ) {

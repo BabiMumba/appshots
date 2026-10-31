@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import { createDeviceInstance } from "./device-instances";
 import { buildDefaultLayerOrder } from "./layer-order";
+import { detectDefaultLocale } from "./locales";
 import {
   createDefaultTexts,
   createTextOverlay,
@@ -209,11 +210,13 @@ function makeShot(opts: {
     customGradient: opts.customGradient ?? null,
     backgroundImage: null,
     overlayImages,
+    shapes: [],
     devices: devicesList,
     activeDeviceId: devicesList[0]?.id ?? "",
     layerOrder: buildDefaultLayerOrder({
       devices: devicesList,
       overlayImages,
+      shapes: [],
       texts,
     }),
   };
@@ -249,6 +252,7 @@ function laurelOverlays(): ImageOverlay[] {
       height: 18,
       rotation: 0,
       layer: "front",
+      opacity: 100,
       shadow: { enabled: false, color: "#000", blur: 0, offsetX: 0, offsetY: 0 },
     },
     {
@@ -261,6 +265,7 @@ function laurelOverlays(): ImageOverlay[] {
       height: 18,
       rotation: 0,
       layer: "front",
+      opacity: 100,
       shadow: { enabled: false, color: "#000", blur: 0, offsetX: 0, offsetY: 0 },
     },
   ];
@@ -740,6 +745,7 @@ function kindForTemplate(templateId: TemplateId): ProjectKind {
 
 export function buildTemplateProject(templateId: TemplateId): Project {
   const built = materialize(templateId);
+  const primaryLocale = detectDefaultLocale();
   return {
     id: uid(),
     name: built.name,
@@ -752,6 +758,8 @@ export function buildTemplateProject(templateId: TemplateId): Project {
     exportSizeId: built.exportSizeId,
     exportSizeIds: built.exportSizeIds,
     activeScreenshotId: built.screenshots[0]?.id ?? "",
+    locales: [primaryLocale],
+    activeLocale: primaryLocale,
   };
 }
 

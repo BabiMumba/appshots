@@ -9,6 +9,7 @@ export const layerKeyFor = (
   if (type === "text" && id) return `text:${id}`;
   if (type === "device" && id) return `device:${id}`;
   if (type === "image" && id) return `image:${id}`;
+  if (type === "shape" && id) return `shape:${id}`;
   return type;
 };
 
@@ -18,38 +19,51 @@ export const parseLayerKey = (
   if (key.startsWith("text:")) return { type: "text", id: key.slice(5) };
   if (key.startsWith("device:")) return { type: "device", id: key.slice(7) };
   if (key.startsWith("image:")) return { type: "image", id: key.slice(6) };
+  if (key.startsWith("shape:")) return { type: "shape", id: key.slice(6) };
   // Legacy keys — callers should remap via ensureLayerOrder
   if (key === "headline" || key === "subheadline") return null;
   return null;
 };
 
-/** Default stack: behind overlays → devices → texts → front overlays */
+/** Default stack: behind overlays/shapes → devices → texts → front overlays/shapes */
 export function buildDefaultLayerOrder(screenshot: {
   devices: { id: string }[];
   overlayImages: { id: string; layer?: "behind" | "front" }[];
+  shapes?: { id: string; layer?: "behind" | "front" }[];
   texts?: { id: string }[];
 }): LayerKey[] {
-  const behind = screenshot.overlayImages
+  const shapes = screenshot.shapes ?? [];
+  const behindImages = screenshot.overlayImages
     .filter((img) => img.layer === "behind")
     .map((img) => `image:${img.id}`);
-  const front = screenshot.overlayImages
+  const frontImages = screenshot.overlayImages
     .filter((img) => img.layer !== "behind")
     .map((img) => `image:${img.id}`);
+  const behindShapes = shapes
+    .filter((s) => s.layer === "behind")
+    .map((s) => `shape:${s.id}`);
+  const frontShapes = shapes
+    .filter((s) => s.layer !== "behind")
+    .map((s) => `shape:${s.id}`);
   const texts = (screenshot.texts ?? []).map((t) => `text:${t.id}`);
   return [
-    ...behind,
+    ...behindImages,
+    ...behindShapes,
     ...screenshot.devices.map((d) => `device:${d.id}`),
     ...texts,
-    ...front,
+    ...frontImages,
+    ...frontShapes,
   ];
 }
 
 export function ensureLayerOrder(screenshot: Screenshot): LayerKey[] {
   const textKeys = (screenshot.texts ?? []).map((t) => `text:${t.id}`);
+  const shapes = screenshot.shapes ?? [];
   const expected = new Set<LayerKey>([
     ...textKeys,
     ...screenshot.devices.map((d) => `device:${d.id}`),
     ...screenshot.overlayImages.map((img) => `image:${img.id}`),
+    ...shapes.map((s) => `shape:${s.id}`),
   ]);
 
   // Remap legacy headline/subheadline → first/second text ids when present

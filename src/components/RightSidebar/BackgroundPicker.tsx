@@ -23,7 +23,9 @@ export const BackgroundPicker = ({
   const fileRef = useRef<HTMLInputElement>(null);
   const custom: CustomGradient =
     screenshot.customGradient ?? DEFAULT_CUSTOM_GRADIENT;
-  const usingCustom = Boolean(screenshot.customGradient);
+  // Custom draft is kept even when a preset (or solid) is active
+  const usingCustom =
+    Boolean(screenshot.customGradient) && !screenshot.gradientPresetId;
   const mode = screenshot.backgroundMode;
 
   const setCustom = (updates: Partial<CustomGradient>) => {
@@ -65,15 +67,15 @@ export const BackgroundPicker = ({
             type="button"
             onClick={() => {
               if (id === "solid") {
-                onUpdateScreenshot({
-                  backgroundMode: "solid",
-                  customGradient: null,
-                });
+                onUpdateScreenshot({ backgroundMode: "solid" });
               } else if (id === "gradient") {
                 onUpdateScreenshot({
                   backgroundMode: "gradient",
                   gradientPresetId:
-                    screenshot.gradientPresetId ?? gradientPresets[0].id,
+                    screenshot.gradientPresetId ??
+                    (screenshot.customGradient
+                      ? null
+                      : gradientPresets[0]?.id ?? null),
                 });
               } else {
                 onUpdateScreenshot({ backgroundMode: "image" });
@@ -110,8 +112,8 @@ export const BackgroundPicker = ({
                 type="button"
                 onClick={() =>
                   onUpdateScreenshot({
+                    backgroundMode: "gradient",
                     gradientPresetId: preset.id,
-                    customGradient: null,
                   })
                 }
                 className={`${STYLES.gradientButton} ${

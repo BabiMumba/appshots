@@ -6,6 +6,9 @@ import { routeTree } from "./routeTree.gen";
 
 import "./styles.css";
 import reportWebVitals from "./reportWebVitals.ts";
+import { applyUiTheme, readUiTheme } from "./lib/ui-theme";
+
+applyUiTheme(readUiTheme());
 
 // Create a new router instance
 const router = createRouter({

@@ -38,7 +38,7 @@ export const Filmstrip = ({
   const thumbWidth = Math.max(24, Math.round(thumbHeight * exportAspect));
 
   return (
-    <div className="shrink-0 border-b border-white/10 bg-[#121212] px-3 py-2">
+    <div className="shrink-0 border-b border-[var(--ed-border)] bg-[var(--ed-panel)] px-3 py-2">
       <div
         ref={rowRef}
         className="flex items-center gap-2 overflow-x-auto scrollbar-thin"

@@ -13,6 +13,7 @@
     "@tanstack/react-router": "^1.132.0",
     "@tanstack/router-plugin": "^1.132.0",
     "@vercel/analytics": "^1.6.1",
+    "country-flag-icons": "^1.6.20",
     "jszip": "^3.10.1",
     "lucide-react": "^0.545.0",
     "react": "^19.2.0",
